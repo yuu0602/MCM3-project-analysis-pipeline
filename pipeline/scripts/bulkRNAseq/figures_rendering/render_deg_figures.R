@@ -110,14 +110,24 @@ plot_volcano <- function(tab, factor) {
     geom_vline(xintercept = c(-LFC_MIN, LFC_MIN), linetype = "dotted", linewidth = 0.7) +
     geom_hline(yintercept = -log10(FDR_MAX), linetype = "dotted", linewidth = 0.7) +
     scale_colour_manual(values = c(Down = "#3B73B9", NS = "#B3B3B3", Up = "#C73A3A"), guide = "none") +
-    labs(x = paste0("Log\u2082 Fold Change (", factor, "-KD/NT)"), y = "-Log\u2081\u2080 BH-Adjusted p-value") +
+    labs(
+      x = bquote(log[2]~"fold change (" * .(factor) * "-KD/NT)"),
+      y = expression(-log[10]~"BH-adjusted p-value")
+    ) +
     theme_classic(base_size = 13) +
     theme(axis.title.x = element_text(face = "bold", colour = "black"),
           axis.title.y = element_text(face = "bold", colour = "black"),
           axis.text = element_text(colour = "black"), plot.margin = margin(8, 10, 8, 10))
   ggsave(file.path(OUT_VIS, paste0("Volcano_", factor, ".png")), p, width = 7.2, height = 5.6, dpi = 300, bg = "white")
   if (!is.null(OUT_PUB)) {
-    p_no_text <- p + theme_void() + theme(plot.margin = margin(8, 10, 8, 10))
+    p_no_text <- p + theme(
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.line = element_line(colour = "black", linewidth = 0.5),
+      plot.margin = margin(8, 10, 8, 10)
+    )
     ggsave(file.path(OUT_PUB, paste0("Volcano_", factor, "_noTexts.png")), p_no_text, width = 7.2, height = 5.6, dpi = 300, bg = "white")
   }
 }

@@ -125,6 +125,11 @@ pie_plot <- function(title, tab, show_numbers = TRUE, show_labels = TRUE) {
 }
 
 binding_pie <- function(factor, all_targets, direct_targets, out, show_numbers = TRUE) {
+  all_targets <- sort(unique(all_targets))
+  direct_targets <- sort(unique(direct_targets))
+  if (!all(direct_targets %in% all_targets)) {
+    stop("Promoter-bound targets are not a subset of all DEG targets for ", factor, call. = FALSE)
+  }
   dat <- data.frame(
     class = c("Targets w/ promoter binding", "Targets w/o promoter binding"),
     n = c(length(direct_targets), length(all_targets) - length(direct_targets)),
@@ -242,8 +247,8 @@ make_group_profile <- function(group_name, genes, tracks, gtf_genes) {
   ggplot2::ggsave(out_png, p, width = 10.5, height = 10.5 * 5.6 / 7.4, dpi = 300, bg = "white")
   if (!is.null(PUBLICATION_DIR)) {
     p_no_text <- p + ggplot2::theme(
-      plot.title = ggplot2::element_blank(), axis.title = ggplot2::element_blank(),
-      axis.text = ggplot2::element_blank(), axis.ticks = ggplot2::element_blank(),
+      plot.title = ggplot2::element_blank(), axis.title.x = ggplot2::element_blank(), axis.title.y = ggplot2::element_blank(),
+      axis.text.x = ggplot2::element_blank(), axis.text.y = ggplot2::element_blank(),
       legend.position = "none"
     )
     ggplot2::ggsave(file.path(PUBLICATION_DIR, paste0("Metaprofile_Group", group_name, "_noTexts.png")), p_no_text,
@@ -301,8 +306,8 @@ make_mcm3_target_profile <- function(gtf_genes) {
   ggplot2::ggsave(out_png, p, width = 14.6667, height = 14.6667 * 5.6 / 7.4, dpi = 300, bg = "white")
   if (!is.null(PUBLICATION_DIR)) {
     p_no_text <- p + ggplot2::theme(
-      plot.title = ggplot2::element_blank(), axis.title = ggplot2::element_blank(),
-      axis.text = ggplot2::element_blank(), axis.ticks = ggplot2::element_blank(),
+      plot.title = ggplot2::element_blank(), axis.title.x = ggplot2::element_blank(), axis.title.y = ggplot2::element_blank(),
+      axis.text.x = ggplot2::element_blank(), axis.text.y = ggplot2::element_blank(),
       legend.position = "none"
     )
     ggplot2::ggsave(file.path(PUBLICATION_DIR, "Metaprofile_MCM3_target_noTexts.png"), p_no_text,
@@ -377,12 +382,26 @@ if (!is.null(PUBLICATION_DIR)) {
 input_parameters <- readLines(file.path(GROUP_DIR, "AnalysisParameters.tsv"), warn = FALSE)
 writeLines(c(input_parameters, "mix_color\t#F3D37A (yellow)"), file.path(GROUP_DIR, "Pie_Groups_parameters.tsv"))
 
+binding_summary <- list()
 for (factor in c("NONO", "PSPC1")) {
   all_targets <- union(union(class_sets[[factor]]$up, class_sets[[factor]]$down), class_sets[[factor]]$indirect)
+  if (!all(direct_sets[[factor]] %in% all_targets)) {
+    stop("Target-binding pie inputs are inconsistent for ", factor, call. = FALSE)
+  }
+  binding_summary[[factor]] <- data.frame(
+    factor = factor,
+    DEG_targets = length(unique(all_targets)),
+    promoter_bound_targets = length(unique(direct_sets[[factor]])),
+    DEG_only_targets = length(setdiff(all_targets, direct_sets[[factor]])),
+    promoter_bound_percent = 100 * length(unique(direct_sets[[factor]])) / length(unique(all_targets)),
+    stringsAsFactors = FALSE
+  )
   binding_pie(factor, all_targets, direct_sets[[factor]], file.path(GROUP_VISUAL_DIR, paste0("Pie_TargetBinding_", factor, ".png")))
   if (!is.null(PUBLICATION_DIR)) binding_pie(factor, all_targets, direct_sets[[factor]],
     file.path(PUBLICATION_DIR, paste0("Pie_TargetBinding_", factor, "_noTexts.png")), show_numbers = FALSE)
 }
+write.table(do.call(rbind, binding_summary), file.path(GROUP_DIR, "Pie_TargetBinding_summary.tsv"),
+            sep = "\t", quote = FALSE, row.names = FALSE)
 
 gtf_genes <- read_gtf_genes(GTF)
 profile_summary <- do.call(rbind, lapply(names(GROUPS), function(name) make_group_profile(name, groups[[name]], GROUPS[[name]]$tracks, gtf_genes)))
