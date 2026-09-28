@@ -31,6 +31,7 @@ TRACKS = {
     for factor in FACTORS
 }
 PEAK_LOCI = CUTRUN / "data" / "PeakLoci" / "Venn_Peaks_loci.tsv"
+CODING_PEAKS = DATA / "protein_coding_peak_associations"
 PROMOTERS = CUTRUN / "data" / "Promoters_M25_TSSplusminus1kb.bed"
 PROMOTER_OVERLAP_BP = 250
 OUT = DATA / "additional_panels"
@@ -103,7 +104,7 @@ def matrix(path: Path, genes_bed: Path, tracks: list[Path], mode: str) -> tuple[
 
 
 def peak_locus_groups() -> dict[int, pd.DataFrame]:
-    """Load disjoint peak-locus Venn regions for the peak-centered panels."""
+    """Use the same protein-coding-associated loci and masks as Venn_Peaks."""
     table = pd.read_csv(PEAK_LOCI, sep="\t")
     required = {"region_mask", "chrom", "start", "end"}
     missing = required - set(table.columns)
@@ -112,6 +113,16 @@ def peak_locus_groups() -> dict[int, pd.DataFrame]:
     table["region_mask"] = pd.to_numeric(table["region_mask"], errors="raise").astype(int)
     table["start"] = pd.to_numeric(table["start"], errors="raise").astype(int)
     table["end"] = pd.to_numeric(table["end"], errors="raise").astype(int)
+    ids = table.chrom.astype(str) + ":" + table.start.astype(str) + "-" + table.end.astype(str)
+    masks = pd.Series(0, index=table.index)
+    for factor, bit in zip(FACTORS, (1, 2, 4)):
+        selected = pd.read_csv(CODING_PEAKS / f"Peaks_{factor}.tsv", sep="\t")
+        selected_ids = set(selected.peak_id)
+        if not selected_ids <= set(ids):
+            raise ValueError(f"Unknown protein-coding-associated peak loci: {factor}")
+        masks += ids.isin(selected_ids).astype(int) * bit
+    table["region_mask"] = masks
+    table = table.loc[table.region_mask.gt(0)].copy()
     columns = [column for column in ("locus_id", "chrom", "start", "end") if column in table.columns]
     return {mask: table.loc[table.region_mask.eq(mask), columns].copy() for mask in (1, 3, 5, 7)}
 
@@ -261,6 +272,7 @@ def render_peak_associated_gene_profiles() -> None:
             "unit": "promoter-overlapping peak loci", "n_input_peak_loci": len(groups[mask]),
             "n_profile_loci": retained, "promoter_overlap_rule": f">={PROMOTER_OVERLAP_BP} bp",
             "reference_point": "TSS/TES scaled gene body",
+            "peak_universe": "protein-coding-associated canonical loci",
         })
     axis.axvline(0.0, color="#222222", lw=1.1, ls="--"); axis.axvline(2.0, color="#222222", lw=1.1, ls="--")
     axis.set_xlim(-3.0, 3.0); axis.set_ylim(0.0, ymax * 1.05)
@@ -304,6 +316,7 @@ def render_peak_associated_gene_profiles() -> None:
         "unit": "promoter-overlapping peak loci", "n_input_peak_loci": len(groups[7]),
         "n_profile_loci": retained, "promoter_overlap_rule": f">={PROMOTER_OVERLAP_BP} bp",
         "reference_point": "TSS/TES scaled gene body",
+        "peak_universe": "protein-coding-associated canonical loci",
     })
     write_peak_profile_summary(summary_rows)
 
@@ -367,7 +380,6 @@ def main() -> None:
     missing = [str(path) for path in required if not path.is_file() or path.stat().st_size == 0]
     if missing:
         raise FileNotFoundError("Missing reference-layout input(s):\n" + "\n".join(missing))
-    draw_reference_venn()
     render_promoter_gene_profile()
     render_peak_associated_gene_profiles()
     print(f"[DONE] CUT&RUN overlap and metaprofile figures: {VISUALS}")

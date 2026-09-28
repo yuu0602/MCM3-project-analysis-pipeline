@@ -9,6 +9,7 @@ import argparse
 import importlib.util
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -122,6 +123,7 @@ def configure_additional():
     module.GENE_BED = CUTRUN_ROOT / "data" / "GeneBodies_M25.bed6"
     module.TRACKS = TRACKS
     module.PEAK_LOCI = CUTRUN_ROOT / "data" / "PeakLoci" / "Venn_Peaks_loci.tsv"
+    module.CODING_PEAKS = FIGURE_DATA / "protein_coding_peak_associations"
     module.PROMOTERS = CUTRUN_ROOT / "data" / "Promoters_M25_TSSplusminus1kb.bed"
     module.OUT = FIGURE_DATA / "additional_panels"
     module.COMPUTE_MATRIX = Path(executable("computeMatrix", "/opt/anaconda3/envs/cutrun_env/bin/computeMatrix"))
@@ -133,9 +135,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--rpkm-only", action="store_true")
+    parser.add_argument("--peak-associations-only", action="store_true", help="Render only the protein-coding-associated peak/gene Venns and pies")
+    parser.add_argument("--peak-profiles-only", action="store_true", help="Render only the two protein-coding-associated peak profiles")
     parser.add_argument("--publication-figures", action="store_true", help="Also render text-free PNGs in cutrun_work/visuals/publication_figures")
     parser.add_argument("--no-text", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if sum((args.rpkm_only, args.peak_associations_only, args.peak_profiles_only)) > 1:
+        parser.error("Select at most one --*-only option")
     if args.no_text:
         VISUALS = PUBLICATION_FIGURES
         enable_text_free_rendering()
@@ -145,10 +151,21 @@ def main() -> None:
     prepare_inputs()
     if args.publication_figures:
         PUBLICATION_FIGURES.mkdir(parents=True, exist_ok=True)
+    if args.peak_associations_only:
+        render_peak_associations(args.no_text)
+        if args.publication_figures and not args.no_text:
+            subprocess.run([sys.executable, str(Path(__file__).resolve()), "--no-text", "--peak-associations-only"], check=True)
+        return
     required = [REFERENCE_DIR / "gencode.vM25.annotation.gtf", CUTRUN_ROOT / "data" / "GeneBodies_M25.bed6", IGG, *TRACKS.values()]
     missing = [str(path) for path in required if not path.is_file() or path.stat().st_size == 0]
     if missing:
         raise FileNotFoundError("Missing CUT&RUN figure inputs:\n" + "\n".join(missing))
+    if args.peak_profiles_only:
+        module = configure_additional()
+        module.render_peak_associated_gene_profiles()
+        if args.publication_figures and not args.no_text:
+            subprocess.run([sys.executable, str(Path(__file__).resolve()), "--no-text", "--peak-profiles-only"], check=True)
+        return
     primary = configure_primary()
     primary.NO_TEXT_VISUALS = None
     primary.TEXT_FREE = args.no_text
@@ -159,22 +176,24 @@ def main() -> None:
         print(f"[DONE] CUT&RUN RPKM figures: {VISUALS}")
         return
     primary.main()
-    distribution = configure_distribution()
-    distribution.TEXT_FREE = args.no_text
-    distribution.main()
-    counts = FIGURE_DATA / "peak_distribution" / "Pie_PeakDistribution_counts.tsv"
-    shutil.copy2(counts, CUTRUN_ROOT / "data" / "Pie_PeakDistribution_counts.tsv")
+    render_peak_associations(args.no_text)
     additional = configure_additional()
     additional.NO_TEXT_VISUALS = None
     additional.main()
-    peak_gene_module = load_module(HELPERS / "render_peak_associated_genes.py")
-    peak_gene_module.VISUALS = VISUALS
-    peak_gene_module.NO_TEXT_VISUALS = None
-    peak_gene_module.main()
     if args.publication_figures and not args.no_text:
         subprocess.run([sys.executable, str(Path(__file__).resolve()), "--no-text"], check=True)
         print(f"[DONE] CUT&RUN publication figures: {PUBLICATION_FIGURES}")
     print(f"[DONE] CUT&RUN figures: {VISUALS}")
+
+
+def render_peak_associations(no_text: bool = False) -> None:
+    module = load_module("render_peak_associated_genes.py")
+    module.CUTRUN = CUTRUN_ROOT
+    module.DATA = FIGURE_DATA
+    module.GTF = REFERENCE_DIR / "gencode.vM25.annotation.gtf"
+    module.VISUALS = VISUALS
+    module.TEXT_FREE = no_text
+    module.main()
 
 
 if __name__ == "__main__":

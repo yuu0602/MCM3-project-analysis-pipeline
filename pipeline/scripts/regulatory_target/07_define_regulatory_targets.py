@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Intersect promoter-bound genes with DEGs and render regulatory figures."""
+"""Render promoter-bound targets and a separate shared-peak-associated DEG analysis."""
 
 #Before you run this script, please replace directory placeholders with your own directory
 
@@ -45,20 +45,28 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--publication-figures", action="store_true", help="Also render text-free PNGs in regulatory_work/visuals/publication_figures")
+    parser.add_argument("--shared-peaks-only", action="store_true", help="Update only the shared-peak-associated DEG branch")
     args = parser.parse_args()
     if args.dry_run:
-        print("[DRY-RUN] Would calculate regulatory targets and render their figures.")
+        print("[DRY-RUN] Would render promoter-bound targets and/or shared-peak-associated DEGs.")
         return
     promoter_input = CUTRUN_ROOT / "data" / "figure_inputs" / "promoter_gene_venn"
     if not promoter_input.is_dir():
         raise FileNotFoundError("Run CUT&RUN Step 05 before regulatory integration")
     if args.publication_figures:
         PUBLICATION_FIGURES.mkdir(parents=True, exist_ok=True)
-    run_r("render_direction.R", args.publication_figures)
-    run_r("render_targets.R", args.publication_figures)
+    if not args.shared_peaks_only:
+        run_r("render_direction.R", args.publication_figures)
+        run_r("render_targets.R", args.publication_figures)
+    command = [sys.executable, str(HELPERS / "render_shared_peak_genes.py"), "--pipeline-root", str(RUN_ROOT)]
     if args.publication_figures:
+        command.append("--publication-figures")
+    subprocess.run(command, check=True)
+    if args.publication_figures and not args.shared_peaks_only:
         print(f"[DONE] Regulatory-target publication figures: {PUBLICATION_FIGURES}")
-    print(f"[DONE] Regulatory-target figures: {VISUALS}")
+    if not args.shared_peaks_only:
+        print(f"[DONE] Regulatory-target figures: {VISUALS}")
+    print(f"[DONE] Shared-peak-associated DEG figures: {VISUALS / 'shared_peaks_visuals'}")
 
 
 if __name__ == "__main__":

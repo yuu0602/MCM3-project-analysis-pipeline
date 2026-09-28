@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-"""Render whole-genome nearest-TSS peak-associated gene figures."""
+"""Render protein-coding-associated peak and gene Venns and distribution pies."""
 
 from bisect import bisect_left
+from collections import defaultdict
 import importlib.util
 from pathlib import Path
+import re
+import shutil
+import subprocess
 
+import matplotlib
+matplotlib.use("Agg")
 import pandas as pd
 
 PROJECT = Path(__file__).resolve().parent
@@ -13,8 +19,11 @@ CUTRUN = RUN / "cutrun_work"
 DATA = CUTRUN / "data" / "figure_inputs"
 VISUALS = CUTRUN / "visuals"
 NO_TEXT_VISUALS: Path | None = None
+TEXT_FREE = False
 GTF = RUN / "reference" / "gencode.vM25.annotation.gtf"
 FACTORS = ("MCM3", "NONO", "PSPC1")
+ASSAYS = (*FACTORS, "IgG")
+COORDS = ["chrom", "start", "end"]
 
 
 def gene_tss() -> dict[str, list[tuple[int, str]]]:
@@ -76,7 +85,7 @@ def gene_annotation_renderer(output: Path):
     renderer.ASSAYS = list(FACTORS)
     renderer.PEAK_UNIT_LABEL = "peak-associated genes"
     renderer.USE_NT_KD_UNION = False
-    renderer.BEDTOOLS = Path("/opt/anaconda3/envs/cutrun_env/bin/bedtools")
+    renderer.BEDTOOLS = Path(shutil.which("bedtools") or "/opt/anaconda3/envs/cutrun_env/bin/bedtools")
     renderer.ensure_dirs()
     return renderer, distribution.category_beds(renderer, CUTRUN / "data" / "PeakLoci" / "Venn_Peaks_MCM3.bed")
 
@@ -89,6 +98,110 @@ def annotate_unique_genes(renderer, categories: dict[str, Path], table: pd.DataF
     return renderer.assign_categories(midpoint, categories)
 
 
+def protein_coding_assignments(output: Path):
+    """Assign all qualifying promoters, fall back to nearest TSS, then filter biotype."""
+    data = output
+    sources=peak_sets()
+    peak_members={}
+    for factor,table in sources.items():
+        peak_members[factor]={f'{r.chrom}:{int(r.start)}-{int(r.end)}' for r in table.itertuples(index=False)}
+    peaks=pd.concat(sources.values(),ignore_index=True).drop_duplicates(COORDS).sort_values(COORDS).reset_index(drop=True)
+    peaks['peak_id']=[f'{r.chrom}:{int(r.start)}-{int(r.end)}' for r in peaks.itertuples(index=False)]
+    peaks[COORDS+['peak_id']].to_csv(data/'OriginalPeaks.bed',sep='\t',index=False,header=False)
+    rows=[]
+    with GTF.open() as h:
+        for line in h:
+            fields=line.rstrip().split('\t')
+            if len(fields)!=9 or fields[2]!='gene':continue
+            a=dict(re.findall(r'(\w+) "([^"]*)"',fields[8]))
+            tss=int(fields[3])-1 if fields[6]=='+' else int(fields[4])
+            rows.append({'chrom':fields[0],'start':max(0,tss-1000),'end':tss+1000,'tss':tss,
+                         'gene_id':a['gene_id'].split('.')[0],'gene':a.get('gene_name',a['gene_id']),
+                         'gene_type':a['gene_type']})
+    promoters=pd.DataFrame(rows)
+    promoters[['chrom','start','end','gene_id','gene','gene_type','tss']].to_csv(
+        data/'Promoters_AllBiotypes.bed',sep='\t',index=False,header=False)
+    bedtools=shutil.which('bedtools') or '/opt/anaconda3/envs/cutrun_env/bin/bedtools'
+    with (data/'PeakPromoter_overlaps.tsv').open('w') as h:
+        subprocess.run([bedtools,'intersect','-a',str(data/'OriginalPeaks.bed'),'-b',str(data/'Promoters_AllBiotypes.bed'),'-wo'],stdout=h,check=True)
+    overlaps=pd.read_csv(data/'PeakPromoter_overlaps.tsv',sep='\t',header=None,
+        names=['chrom','start','end','peak_id','promoter_chrom','promoter_start','promoter_end','gene_id','gene','gene_type','tss','promoter_overlap_bp'])
+    passing=overlaps.loc[overlaps.promoter_overlap_bp.ge(250)].copy()
+    qualifying=set(passing.peak_id)
+    passing['assignment_method']='promoter_overlap'
+    passing['nearest_tss_distance_bp']=abs((passing.start+passing.end)//2-passing.tss)
+    cols=COORDS+['peak_id','gene_id','gene','gene_type','assignment_method','promoter_overlap_bp','nearest_tss_distance_bp']
+    passing=passing[cols].drop_duplicates(['peak_id','gene_id'])
+    index=gene_tss()
+    positions={chrom:[r[0] for r in entries] for chrom,entries in index.items()}
+    annotation=defaultdict(list)
+    for r in promoters.itertuples(index=False):annotation[(r.chrom,r.gene)].append(r)
+    fallback=[]
+    for r in peaks.loc[~peaks.peak_id.isin(qualifying)].itertuples(index=False):
+        center=(int(r.start)+int(r.end))//2
+        entries=index.get(r.chrom,[])
+        if not entries:
+            fallback.append((r.chrom,r.start,r.end,r.peak_id,'','','unassigned','unassigned',0,-1))
+            continue
+        point=bisect_left(positions[r.chrom],center)
+        tss,gene=min(entries[max(0,point-1):point+1],key=lambda e:(abs(e[0]-center),e[1]))
+        matches=[a for a in annotation[(r.chrom,gene)] if abs(a.tss-center)==abs(tss-center)]
+        if not matches:raise ValueError(f'Unresolved nearest-TSS locus: {r.peak_id}')
+        # Retain every tied original annotation record; do not redirect to coding genes.
+        for a in matches:
+            fallback.append((r.chrom,r.start,r.end,r.peak_id,a.gene_id,gene,a.gene_type,'nearest_TSS_fallback',0,abs(tss-center)))
+    audit=pd.concat([passing,pd.DataFrame(fallback,columns=cols)],ignore_index=True).drop_duplicates(['peak_id','gene_id'])
+    audit['retained']=audit.gene_type.eq('protein_coding')
+    audit.to_csv(data/'PeakGeneAssignments_all_biotypes_audit.tsv',sep='\t',index=False)
+    assignments=audit.loc[audit.retained].copy()
+    assignments.to_csv(data/'PeakGeneAssignments.tsv',sep='\t',index=False)
+    assert set(audit.peak_id)==set(peaks.peak_id)
+    assert not set(audit.loc[audit.assignment_method.eq('nearest_TSS_fallback'),'peak_id'])&qualifying
+    peak_tables,gene_tables,summaries={},{},[]
+    for factor in ASSAYS:
+        links=assignments.loc[assignments.peak_id.isin(peak_members[factor])].copy()
+        kept=peaks.loc[peaks.peak_id.isin(set(links.peak_id))].copy()
+        genes=links.sort_values(['gene_id','nearest_tss_distance_bp','chrom','start','end']).drop_duplicates('gene_id')
+        assert kept.peak_id.is_unique and genes.gene_id.is_unique
+        kept.to_csv(data/f'Peaks_{factor}.tsv',sep='\t',index=False)
+        kept[COORDS].to_csv(data/f'Peaks_{factor}.bed',sep='\t',index=False,header=False)
+        genes.to_csv(data/f'PeakAssociatedGenes_{factor}.tsv',sep='\t',index=False)
+        links.to_csv(data/f'PeakGeneAssignments_{factor}.tsv',sep='\t',index=False)
+        peak_tables[factor],gene_tables[factor]=kept,genes
+        summaries.append({'factor':factor,'original_peaks':len(sources[factor]),'retained_peaks':len(kept),
+                          'associated_gene_ids':len(genes),'promoter_associated_gene_ids':links.loc[links.assignment_method.eq('promoter_overlap'),'gene_id'].nunique()})
+    pd.DataFrame(summaries).to_csv(data/'AssignmentSummary.tsv',sep='\t',index=False)
+    return gene_tables, peak_tables
+
+
+def render_venn(venn, tables, column: str, name: str, output: Path):
+    a, b, c = (set(tables[f][column]) for f in FACTORS)
+    regions = {"100": a-b-c, "010": b-a-c, "001": c-a-b,
+               "110": (a & b)-c, "101": (a & c)-b, "011": (b & c)-a,
+               "111": a & b & c}
+    pd.DataFrame([{"region": key, "count": len(value)} for key, value in regions.items()]).to_csv(
+        output / f"{name}_counts.tsv", sep="\t", index=False)
+    pd.DataFrame([{"region": key, "member": item} for key, value in regions.items()
+                  for item in sorted(value)], columns=["region", "member"]).to_csv(
+        output / f"{name}_members.tsv", sep="\t", index=False)
+    venn.plot_triple_venn((a, b, c), FACTORS, VISUALS / f"{name}.png",
+                          show_numbers=not TEXT_FREE, show_totals=not TEXT_FREE)
+
+
+def shared_peak_distribution(renderer, categories, peaks, output: Path) -> None:
+    shared_ids = set.intersection(*(set(peaks[f].peak_id) for f in FACTORS))
+    shared = peaks["MCM3"].loc[peaks["MCM3"].peak_id.isin(shared_ids)].copy()
+    shared.to_csv(output / "SharedPeaks.tsv", sep="\t", index=False)
+    counts = annotate_unique_genes(renderer, categories, shared, "SharedPeaks")
+    if sum(counts.values()) != len(shared):
+        raise ValueError("Shared peak distribution totals do not match the Venn")
+    renderer.PEAK_UNIT_LABEL = "shared peaks"
+    renderer.save_single(VISUALS / "Pie_SharedPeaks_Distribution.png", "MCM3-NONO-PSPC1", counts, len(shared))
+    pd.DataFrame([{"category": key, "n_peaks": value, "percent": 100*value/len(shared)}
+                  for key, value in counts.items()]).to_csv(
+        output / "Pie_SharedPeaks_Distribution_counts.tsv", sep="\t", index=False)
+
+
 def main() -> None:
     spec = importlib.util.spec_from_file_location("peak_venn", PROJECT / "peak_venn.py")
     if spec is None or spec.loader is None:
@@ -96,49 +209,30 @@ def main() -> None:
     venn = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(venn)
 
-    output = DATA / "peak_associated_genes"
+    output = DATA / "protein_coding_peak_associations"
     output.mkdir(parents=True, exist_ok=True)
     VISUALS.mkdir(parents=True, exist_ok=True)
-    index, assigned = gene_tss(), {}
-    for factor, peaks in peak_sets().items():
-        rows = []
-        for row in peaks.itertuples(index=False):
-            hit = nearest_gene(str(row.chrom), int(row.start), int(row.end), index)
-            if hit:
-                gene, distance = hit
-                rows.append((str(row.chrom), int(row.start), int(row.end), gene, distance))
-        table = pd.DataFrame(rows, columns=["chrom", "start", "end", "gene", "nearest_tss_distance_bp"])
-        table = table.sort_values(["gene", "nearest_tss_distance_bp", "chrom", "start"]).drop_duplicates("gene")
-        assigned[factor] = table
-        table.to_csv(output / f"PeakAssociatedGenes_{factor}.tsv", sep="\t", index=False)
+    genes, peaks = protein_coding_assignments(output)
     renderer, categories = gene_annotation_renderer(output)
-    counts = {
-        factor: annotate_unique_genes(renderer, categories, table, factor)
-        for factor, table in assigned.items()
-    }
-    for factor in assigned:
-        renderer.save_single(
-            VISUALS / f"Pie_PeakAssociatedGenes_{factor}.png",
-            factor,
-            counts[factor],
-            len(assigned[factor]),
-        )
-    renderer.save_three_panel(
-        VISUALS / "Pie_PeakAssociatedGenes.png",
-        {factor: counts[factor] for factor in FACTORS},
-        {factor: len(assigned[factor]) for factor in FACTORS},
-    )
-    annotation_rows = [
-        {"factor": factor, "category": category, "n_unique_peak_associated_genes": value}
-        for factor, result in counts.items()
-        for category, value in result.items()
-    ]
-    pd.DataFrame(annotation_rows).to_csv(output / "PeakAssociatedGenes_annotation_counts.tsv", sep="\t", index=False)
-    factor_sets = tuple(set(assigned[factor].gene) for factor in FACTORS)
-    venn.plot_triple_venn(factor_sets, FACTORS, VISUALS / "Venn_PeakAssociatedGenes.png")
-    if NO_TEXT_VISUALS is not None:
-        venn.plot_triple_venn(factor_sets, FACTORS, NO_TEXT_VISUALS / "Venn_PeakAssociatedGenes_noTexts.png", show_numbers=False, show_totals=False)
-    print("[DONE] Whole-genome nearest-TSS peak-associated gene figures:", VISUALS)
+    for is_gene, tables in ((False, peaks), (True, genes)):
+        prefix = "Pie_PeakAssociatedGenes" if is_gene else "Pie"
+        combined = "Pie_PeakAssociatedGenes" if is_gene else "Pie_PeakDistribution"
+        renderer.PEAK_UNIT_LABEL = "peak-associated genes" if is_gene else "peaks"
+        counts, totals, rows = {}, {}, []
+        for factor, table in tables.items():
+            counts[factor] = annotate_unique_genes(renderer, categories, table, f"{prefix}_{factor}")
+            totals[factor] = len(table)
+            if sum(counts[factor].values()) != len(table):
+                raise ValueError(f"Pie totals mismatch: {prefix}/{factor}")
+            renderer.save_single(VISUALS / f"{prefix}_{factor}.png", factor, counts[factor], len(table))
+            rows.extend({"factor": factor, "category": key, "count": value, "total": len(table)}
+                        for key, value in counts[factor].items())
+        renderer.save_three_panel(VISUALS / f"{combined}.png", counts, totals)
+        pd.DataFrame(rows).to_csv(output / f"{combined}_counts.tsv", sep="\t", index=False)
+    render_venn(venn, peaks, "peak_id", "Venn_Peaks", output)
+    render_venn(venn, genes, "gene_id", "Venn_PeakAssociatedGenes", output)
+    shared_peak_distribution(renderer, categories, peaks, output)
+    print("[DONE] Protein-coding-associated peak and gene figures:", VISUALS)
 
 
 if __name__ == "__main__":
