@@ -37,6 +37,7 @@ def main() -> None:
     parser.add_argument("--source", choices=("accepted", "raw"), default="accepted")
     parser.add_argument("--threads", type=int, default=max(1, min(10, os.cpu_count() or 1)))
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--shared-peaks", action="store_true", help="Also generate regulatory_work/visuals/shared_peaks_visuals and its data")
     parser.add_argument("--publication-figures", action="store_true", help="Render text-free bulk RNA-seq and CUT&RUN PNGs in visuals/publication_figures folders")
     args = parser.parse_args()
 
@@ -55,6 +56,8 @@ def main() -> None:
             command.append("--from-raw")
         if args.publication_figures and relative in {RNASEQ, CUTRUN_FIGURES, REGULATORY}:
             command.append("--publication-figures")
+        if args.shared_peaks and relative == REGULATORY:
+            command.append("--shared-peaks")
         if args.dry_run:
             command.append("--dry-run")
         print("[RUN]", " ".join(command), flush=True)
