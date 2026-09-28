@@ -17,8 +17,3 @@
   yeast-normalized factor/IgG coverage ratio **>= 2** in **both biological replicates**.
 - Regulatory targets are promoter-bound genes that are also DEGs after
   knockdown of the corresponding factor.
-
-The shared-peak-associated DEG branch is optional. Add `--shared-peaks` when
-running `scripts/run_pipeline.py` to generate its figures and data under
-`regulatory_work/visuals/shared_peaks_visuals/`. Without this flag, the standard
-promoter-bound workflow runs and existing shared-peak outputs are left unchanged.
