@@ -1,6 +1,6 @@
 # MCM3 Project Pipeline
 
-This repository contains the publication pipeline for the MCM3-PSPC1-NONO project.
+This repository contains the pipeline for the MCM3-PSPC1-NONO project.
 
 ## Workflow
 
