@@ -21,6 +21,7 @@ CUTRUN = RUN / "cutrun_work"
 DATA = CUTRUN / "data" / "figure_inputs"
 VISUALS = CUTRUN / "visuals"
 NO_TEXT_VISUALS: Path | None = None
+TEXT_FREE = False
 TAG = "q5e2_fe3_min2of2"
 GTF = RUN / "reference" / "gencode.vM25.annotation.gtf"
 GENE_BED = CUTRUN / "data" / "GeneBodies_M25.bed6"
@@ -31,7 +32,6 @@ TRACKS = {
     for factor in FACTORS
 }
 PEAK_LOCI = CUTRUN / "data" / "PeakLoci" / "Venn_Peaks_loci.tsv"
-CODING_PEAKS = DATA / "protein_coding_peak_associations"
 PROMOTERS = CUTRUN / "data" / "Promoters_M25_TSSplusminus1kb.bed"
 PROMOTER_OVERLAP_BP = 250
 OUT = DATA / "additional_panels"
@@ -91,6 +91,9 @@ def draw_reference_venn() -> None:
 def matrix(path: Path, genes_bed: Path, tracks: list[Path], mode: str) -> tuple[list[str], np.ndarray]:
     if not COMPUTE_MATRIX.is_file():
         raise FileNotFoundError(COMPUTE_MATRIX)
+    parser = load_module(PROJECT / "annotation.py", "annotation")
+    if TEXT_FREE and path.is_file() and path.stat().st_size > 0:
+        return parser.read_matrix(path, len(tracks))
     command = [str(COMPUTE_MATRIX), mode, "-S", *(str(track) for track in tracks), "-R", str(genes_bed)]
     if mode == "scale-regions":
         command.extend(("--beforeRegionStartLength", "3000", "--regionBodyLength", "2000", "--afterRegionStartLength", "1000"))
@@ -98,13 +101,12 @@ def matrix(path: Path, genes_bed: Path, tracks: list[Path], mode: str) -> tuple[
         command.extend(("--referencePoint", "TSS", "-b", "3000", "-a", "3000"))
     command.extend(("--binSize", "25", "--missingDataAsZero", "-p", "2", "-o", str(path)))
     subprocess.run(command, check=True)
-    parser = load_module(PROJECT / "annotation.py", "annotation")
     return parser.read_matrix(path, len(tracks))
 
 
 
 def peak_locus_groups() -> dict[int, pd.DataFrame]:
-    """Use the same protein-coding-associated loci and masks as Venn_Peaks."""
+    """Use the complete genomic loci and masks represented in Venn_Peaks."""
     table = pd.read_csv(PEAK_LOCI, sep="\t")
     required = {"region_mask", "chrom", "start", "end"}
     missing = required - set(table.columns)
@@ -113,16 +115,6 @@ def peak_locus_groups() -> dict[int, pd.DataFrame]:
     table["region_mask"] = pd.to_numeric(table["region_mask"], errors="raise").astype(int)
     table["start"] = pd.to_numeric(table["start"], errors="raise").astype(int)
     table["end"] = pd.to_numeric(table["end"], errors="raise").astype(int)
-    ids = table.chrom.astype(str) + ":" + table.start.astype(str) + "-" + table.end.astype(str)
-    masks = pd.Series(0, index=table.index)
-    for factor, bit in zip(FACTORS, (1, 2, 4)):
-        selected = pd.read_csv(CODING_PEAKS / f"Peaks_{factor}.tsv", sep="\t")
-        selected_ids = set(selected.peak_id)
-        if not selected_ids <= set(ids):
-            raise ValueError(f"Unknown protein-coding-associated peak loci: {factor}")
-        masks += ids.isin(selected_ids).astype(int) * bit
-    table["region_mask"] = masks
-    table = table.loc[table.region_mask.gt(0)].copy()
     columns = [column for column in ("locus_id", "chrom", "start", "end") if column in table.columns]
     return {mask: table.loc[table.region_mask.eq(mask), columns].copy() for mask in (1, 3, 5, 7)}
 
@@ -272,7 +264,7 @@ def render_peak_associated_gene_profiles() -> None:
             "unit": "promoter-overlapping peak loci", "n_input_peak_loci": len(groups[mask]),
             "n_profile_loci": retained, "promoter_overlap_rule": f">={PROMOTER_OVERLAP_BP} bp",
             "reference_point": "TSS/TES scaled gene body",
-            "peak_universe": "protein-coding-associated canonical loci",
+            "peak_universe": "all retained canonical genomic loci",
         })
     axis.axvline(0.0, color="#222222", lw=1.1, ls="--"); axis.axvline(2.0, color="#222222", lw=1.1, ls="--")
     axis.set_xlim(-3.0, 3.0); axis.set_ylim(0.0, ymax * 1.05)
@@ -316,7 +308,7 @@ def render_peak_associated_gene_profiles() -> None:
         "unit": "promoter-overlapping peak loci", "n_input_peak_loci": len(groups[7]),
         "n_profile_loci": retained, "promoter_overlap_rule": f">={PROMOTER_OVERLAP_BP} bp",
         "reference_point": "TSS/TES scaled gene body",
-        "peak_universe": "protein-coding-associated canonical loci",
+        "peak_universe": "all retained canonical genomic loci",
     })
     write_peak_profile_summary(summary_rows)
 
@@ -370,6 +362,52 @@ def render_promoter_gene_profile() -> None:
         label.set_fontweight("bold")
     fig.subplots_adjust(left=.13, right=.76, bottom=.16, top=.84)
     save(fig, "Metaprofile_PromoterGenes.png")
+
+
+def render_peak_associated_gene_profile() -> None:
+    root = DATA / "protein_coding_peak_associations"
+    genes = set(pd.read_csv(root / "LocusDefinedGeneGroups.tsv", sep="\t", dtype=str)["gene_id"].dropna())
+    input_dir = DATA / "peak_associated_gene_profiles"
+    gene_bed = input_dir / "GeneBodies_M25_byID.bed6"
+    if not gene_bed.is_file():
+        raise FileNotFoundError(gene_bed)
+    bodies = pd.read_csv(gene_bed, sep="\t", header=None, dtype={3: str})
+    selected = bodies.loc[bodies[3].isin(genes)].drop_duplicates(3)
+    if len(selected) != len(genes):
+        raise RuntimeError("Peak-associated gene-body BED does not cover every Ensembl gene ID")
+    region_bed = OUT / "Metaprofile_PeakAssociatedGenes_regions.bed"
+    selected.to_csv(region_bed, sep="\t", header=False, index=False)
+    _, values = matrix(
+        OUT / "Metaprofile_PeakAssociatedGenes_matrix.gz", region_bed,
+        [TRACKS[factor] for factor in FACTORS], "scale-regions",
+    )
+    profiles = {factor: values[:, index, :].mean(axis=0) for index, factor in enumerate(FACTORS)}
+    x = np.concatenate((
+        np.linspace(-3.0, 0.0, 120, endpoint=False),
+        np.linspace(0.0, 2.0, 80, endpoint=False),
+        np.linspace(2.0, 3.0, 40, endpoint=False),
+    ))
+    pd.DataFrame({"relative_position_kb": x, **profiles}).to_csv(
+        OUT / "Metaprofile_PeakAssociatedGenes_data.tsv", sep="\t", index=False
+    )
+    fig = plt.figure(figsize=(9.5, 9.5 * 5.6 / 7.4), facecolor="white")
+    axis = fig.add_subplot(111)
+    for factor in FACTORS:
+        axis.plot(x, profiles[factor], lw=2.7, label=factor, color=COLORS[factor])
+    axis.axvline(0.0, ls="--", lw=1.6, color="black")
+    axis.axvline(2.0, ls="--", lw=1.6, color="black")
+    axis.set_xlim(-3.0, 3.0)
+    axis.set_ylim(0.0, max(float(np.max(profile)) for profile in profiles.values()) * 1.05)
+    axis.set_xticks((-3.0, 0.0, 2.0, 3.0), ("-3.0", "TSS", "TES", "3.0"))
+    axis.set_title("CUT&RUN peak-associated genes", fontsize=14, fontweight="bold", pad=18)
+    axis.set_xlabel("Relative position (kb)", fontsize=15, fontweight="bold")
+    axis.set_ylabel("Coverage", fontsize=15, fontweight="bold")
+    style_axis(axis, 13)
+    legend = axis.legend(frameon=False, fontsize=12, loc="center left", bbox_to_anchor=(1.02, .5))
+    for label in legend.get_texts():
+        label.set_fontweight("bold")
+    fig.subplots_adjust(left=.13, right=.76, bottom=.16, top=.84)
+    save(fig, "Metaprofile_PeakAssociatedGenes.png")
 
 
 def main() -> None:

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Render protein-coding-associated peak and gene Venns and distribution pies."""
+"""Render peak Venns, locus-defined gene groups, and distribution pies."""
 
 from bisect import bisect_left
 from collections import defaultdict
 import importlib.util
+import json
 from pathlib import Path
 import re
 import shutil
@@ -17,13 +18,71 @@ PROJECT = Path(__file__).resolve().parent
 RUN = PROJECT.parents[2]
 CUTRUN = RUN / "cutrun_work"
 DATA = CUTRUN / "data" / "figure_inputs"
-VISUALS = CUTRUN / "visuals"
+GENE_VISUALS = CUTRUN / "visuals" / "all_genes_visuals"
+PEAK_VISUALS = CUTRUN / "visuals" / "all_peaks_visuals"
 NO_TEXT_VISUALS: Path | None = None
 TEXT_FREE = False
+RENDER_GENES = True
+RENDER_PEAKS = True
 GTF = RUN / "reference" / "gencode.vM25.annotation.gtf"
 FACTORS = ("MCM3", "NONO", "PSPC1")
 ASSAYS = (*FACTORS, "IgG")
 COORDS = ["chrom", "start", "end"]
+LOCUS_REGIONS = {
+    1: "100_only_MCM3", 2: "010_only_NONO", 3: "110_MCM3_NONO",
+    4: "001_only_PSPC1", 5: "101_MCM3_PSPC1", 6: "011_NONO_PSPC1",
+    7: "111_MCM3_NONO_PSPC1",
+}
+
+
+def locus_defined_gene_groups(output: Path) -> pd.DataFrame:
+    """Keep the peak's overlap class when assigning genes; never union factor bits across loci."""
+    loci = pd.read_csv(CUTRUN / "data/PeakLoci/Venn_Peaks_loci.tsv", sep="\t")
+    assignments = pd.read_csv(output / "PeakGeneAssignments.tsv", sep="\t")
+    links = assignments.merge(
+        loci[["locus_id", "region_mask"]], left_on="peak_id", right_on="locus_id",
+        how="inner", validate="many_to_one",
+    )
+    if not links.gene_type.eq("protein_coding").all():
+        raise ValueError("Locus-defined groups require protein-coding assignments")
+    links["region"] = links.region_mask.map(LOCUS_REGIONS)
+    groups = links[["region", "gene_id", "gene"]].drop_duplicates().sort_values(["region", "gene_id"])
+    links.to_csv(output / "LocusDefinedPeakGeneAssignments.tsv", sep="\t", index=False)
+    groups.to_csv(output / "LocusDefinedGeneGroups.tsv", sep="\t", index=False)
+    counts = links.groupby(["region_mask", "region"]).agg(
+        n_genes=("gene_id", "nunique"), n_associated_peaks=("peak_id", "nunique")
+    ).reset_index()
+    counts.to_csv(output / "LocusDefinedGeneGroups_counts.tsv", sep="\t", index=False)
+    counts.assign(region=counts.region.str.split("_").str[0],
+                  counting_basis="distinct genes per locus class; non-disjoint categories").to_csv(
+        output / "Venn_PeakAssociatedGenes_counts.tsv", sep="\t", index=False)
+    groups.assign(region=groups.region.str.split("_").str[0]).rename(columns={"gene_id": "member"}).to_csv(
+        output / "Venn_PeakAssociatedGenes_members.tsv", sep="\t", index=False)
+    shared = links.loc[links.region_mask.eq(7)].groupby("gene_id", as_index=False).agg(
+        gene=("gene", "first"), n_shared_peaks=("peak_id", "nunique")
+    )
+    shared.to_csv(output / "SharedPeakAssociatedGenes.tsv", sep="\t", index=False)
+    (output / "LocusDefinedGeneGroups_parameters.json").write_text(json.dumps({
+        "source_loci": "cutrun_work/data/PeakLoci/Venn_Peaks_loci.tsv",
+        "membership": "Exact overlapping-factor class of each canonical genomic locus, assigned to genes afterward",
+        "assignment": "Existing Step 06 all qualifying promoter links (TSS +/-1000 bp; overlap >=250 bp), otherwise nearest-TSS fallback; protein-coding filter afterward",
+        "counting_unit": "Unique Ensembl gene IDs within each locus class",
+        "groups_are_disjoint": False,
+        "figure": "Venn_PeakAssociatedGenes.png is a schematic three-circle summary, not a conventional gene-set Venn; circle totals are distinct per-factor genes, region counts are not additive",
+        "interpretation": "A gene may occur in several locus classes; only describes factor membership at a locus, not exclusive binding across the gene",
+        "profiles": "One gene body per gene ID within each group; groups selected by overlapping loci, not independent gene-list intersections",
+    }, indent=2) + "\n")
+    return groups
+
+
+def render_locus_gene_groups(venn, output: Path) -> None:
+    counts = pd.read_csv(output / "LocusDefinedGeneGroups_counts.tsv", sep="\t").set_index("region_mask")
+    order = (1, 2, 3, 4, 5, 6, 7)
+    values = [int(counts.loc[mask, "n_genes"]) if mask in counts.index else 0 for mask in order]
+    links = pd.read_csv(output / "LocusDefinedPeakGeneAssignments.tsv", sep="\t")
+    totals = tuple(links.loc[(links.region_mask & bit).ne(0), "gene_id"].nunique() for bit in (1, 2, 4))
+    venn.plot_region_counts(values, FACTORS, totals, GENE_VISUALS / "Venn_PeakAssociatedGenes.png",
+                            show_numbers=not TEXT_FREE, show_totals=not TEXT_FREE, locus_gene_groups=True)
 
 
 def gene_tss() -> dict[str, list[tuple[int, str]]]:
@@ -174,7 +233,7 @@ def protein_coding_assignments(output: Path):
     return gene_tables, peak_tables
 
 
-def render_venn(venn, tables, column: str, name: str, output: Path):
+def render_venn(venn, tables, column: str, name: str, output: Path, visual_dir: Path):
     a, b, c = (set(tables[f][column]) for f in FACTORS)
     regions = {"100": a-b-c, "010": b-a-c, "001": c-a-b,
                "110": (a & b)-c, "101": (a & c)-b, "011": (b & c)-a,
@@ -184,7 +243,7 @@ def render_venn(venn, tables, column: str, name: str, output: Path):
     pd.DataFrame([{"region": key, "member": item} for key, value in regions.items()
                   for item in sorted(value)], columns=["region", "member"]).to_csv(
         output / f"{name}_members.tsv", sep="\t", index=False)
-    venn.plot_triple_venn((a, b, c), FACTORS, VISUALS / f"{name}.png",
+    venn.plot_triple_venn((a, b, c), FACTORS, visual_dir / f"{name}.png",
                           show_numbers=not TEXT_FREE, show_totals=not TEXT_FREE)
 
 
@@ -196,7 +255,7 @@ def shared_peak_distribution(renderer, categories, peaks, output: Path) -> None:
     if sum(counts.values()) != len(shared):
         raise ValueError("Shared peak distribution totals do not match the Venn")
     renderer.PEAK_UNIT_LABEL = "shared peaks"
-    renderer.save_single(VISUALS / "Pie_SharedPeaks_Distribution.png", "MCM3-NONO-PSPC1", counts, len(shared))
+    renderer.save_single(PEAK_VISUALS / "Pie_SharedPeaks_Distribution.png", "MCM3-NONO-PSPC1", counts, len(shared))
     pd.DataFrame([{"category": key, "n_peaks": value, "percent": 100*value/len(shared)}
                   for key, value in counts.items()]).to_csv(
         output / "Pie_SharedPeaks_Distribution_counts.tsv", sep="\t", index=False)
@@ -211,10 +270,23 @@ def main() -> None:
 
     output = DATA / "protein_coding_peak_associations"
     output.mkdir(parents=True, exist_ok=True)
-    VISUALS.mkdir(parents=True, exist_ok=True)
-    genes, peaks = protein_coding_assignments(output)
+    if RENDER_GENES:
+        GENE_VISUALS.mkdir(parents=True, exist_ok=True)
+    if RENDER_PEAKS:
+        PEAK_VISUALS.mkdir(parents=True, exist_ok=True)
+    genes, _ = protein_coding_assignments(output)
+    locus_defined_gene_groups(output)
+    peaks = peak_sets()
+    for table in peaks.values():
+        table["peak_id"] = (
+            table["chrom"].astype(str) + ":" + table["start"].astype(str)
+            + "-" + table["end"].astype(str)
+        )
     renderer, categories = gene_annotation_renderer(output)
     for is_gene, tables in ((False, peaks), (True, genes)):
+        if (is_gene and not RENDER_GENES) or (not is_gene and not RENDER_PEAKS):
+            continue
+        visual_dir = GENE_VISUALS if is_gene else PEAK_VISUALS
         prefix = "Pie_PeakAssociatedGenes" if is_gene else "Pie"
         combined = "Pie_PeakAssociatedGenes" if is_gene else "Pie_PeakDistribution"
         renderer.PEAK_UNIT_LABEL = "peak-associated genes" if is_gene else "peaks"
@@ -224,15 +296,18 @@ def main() -> None:
             totals[factor] = len(table)
             if sum(counts[factor].values()) != len(table):
                 raise ValueError(f"Pie totals mismatch: {prefix}/{factor}")
-            renderer.save_single(VISUALS / f"{prefix}_{factor}.png", factor, counts[factor], len(table))
+            renderer.save_single(visual_dir / f"{prefix}_{factor}.png", factor, counts[factor], len(table))
             rows.extend({"factor": factor, "category": key, "count": value, "total": len(table)}
                         for key, value in counts[factor].items())
-        renderer.save_three_panel(VISUALS / f"{combined}.png", counts, totals)
+        renderer.save_three_panel(visual_dir / f"{combined}.png", counts, totals)
         pd.DataFrame(rows).to_csv(output / f"{combined}_counts.tsv", sep="\t", index=False)
-    render_venn(venn, peaks, "peak_id", "Venn_Peaks", output)
-    render_venn(venn, genes, "gene_id", "Venn_PeakAssociatedGenes", output)
-    shared_peak_distribution(renderer, categories, peaks, output)
-    print("[DONE] Protein-coding-associated peak and gene figures:", VISUALS)
+    if RENDER_PEAKS:
+        render_venn(venn, peaks, "peak_id", "Venn_Peaks", output, PEAK_VISUALS)
+        shared_peak_distribution(renderer, categories, peaks, output)
+    if RENDER_GENES:
+        render_locus_gene_groups(venn, output)
+    print("[DONE] Peak-associated gene figures:", GENE_VISUALS)
+    print("[DONE] Whole-genome peak figures:", PEAK_VISUALS)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,9 @@ TAG = "q5e2_fe3_min2of2"
 HELPERS = Path(__file__).resolve().parent / "figures_rendering"
 FIGURE_DATA = CUTRUN_ROOT / "data" / "figure_inputs"
 VISUALS = CUTRUN_ROOT / "visuals"
-PUBLICATION_FIGURES = VISUALS / "publication_figures"
+PROMOTER_VISUALS = VISUALS / "promoters_visuals"
+GENE_VISUALS = VISUALS / "all_genes_visuals"
+PEAK_VISUALS = VISUALS / "all_peaks_visuals"
 TRACK_ROOT = CUTRUN_ROOT / "03_bigwig" / "IGV_representation"
 TRACKS = {factor: TRACK_ROOT / f"{factor}_mean.bw" for factor in FACTORS}
 IGG = TRACK_ROOT / "IgG_mean.bw"
@@ -80,7 +82,7 @@ def configure_primary():
     module.RUN = RUN_ROOT
     module.CUTRUN = CUTRUN_ROOT
     module.DATA = FIGURE_DATA
-    module.VISUALS = VISUALS
+    module.VISUALS = PROMOTER_VISUALS
     module.PROMOTER = FIGURE_DATA / "promoter_gene_venn"
     module.TAG = TAG
     module.GENE_BED = CUTRUN_ROOT / "data" / "GeneBodies_M25.bed6"
@@ -88,26 +90,6 @@ def configure_primary():
     module.IGG = IGG
     module.COMPUTE_MATRIX = Path(executable("computeMatrix", "/opt/anaconda3/envs/cutrun_env/bin/computeMatrix"))
     module.RSCRIPT = executable("Rscript", "Rscript")
-    return module
-
-
-def configure_distribution():
-    module = load_module("render_peak_distribution.py")
-    module.PROJECT = HELPERS
-    module.RUN = RUN_ROOT
-    module.CUTRUN = CUTRUN_ROOT
-    module.DATA = FIGURE_DATA
-    module.VISUALS = VISUALS
-    module.TEXT_FREE = False
-    module.PEAKS = FIGURE_DATA / "batch_stratified_peaks"
-    module.STAGE = FIGURE_DATA / "peak_distribution" / "intermediate"
-    module.GTF = REFERENCE_DIR / "gencode.vM25.annotation.gtf"
-    module.IGG_BED = CUTRUN_ROOT / "data" / "PeakSets" / "Peaks_IgG.bed"
-    module.PEAK_LOCI = {
-        factor: CUTRUN_ROOT / "data" / "PeakLoci" / f"Venn_Peaks_{factor}.bed"
-        for factor in FACTORS
-    }
-    module.BEDTOOLS = Path(executable("bedtools", "/opt/anaconda3/envs/cutrun_env/bin/bedtools"))
     return module
 
 
@@ -123,7 +105,6 @@ def configure_additional():
     module.GENE_BED = CUTRUN_ROOT / "data" / "GeneBodies_M25.bed6"
     module.TRACKS = TRACKS
     module.PEAK_LOCI = CUTRUN_ROOT / "data" / "PeakLoci" / "Venn_Peaks_loci.tsv"
-    module.CODING_PEAKS = FIGURE_DATA / "protein_coding_peak_associations"
     module.PROMOTERS = CUTRUN_ROOT / "data" / "Promoters_M25_TSSplusminus1kb.bed"
     module.OUT = FIGURE_DATA / "additional_panels"
     module.COMPUTE_MATRIX = Path(executable("computeMatrix", "/opt/anaconda3/envs/cutrun_env/bin/computeMatrix"))
@@ -131,68 +112,71 @@ def configure_additional():
 
 
 def main() -> None:
-    global VISUALS
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--rpkm-only", action="store_true")
-    parser.add_argument("--peak-associations-only", action="store_true", help="Render only the protein-coding-associated peak/gene Venns and pies")
-    parser.add_argument("--peak-profiles-only", action="store_true", help="Render only the two protein-coding-associated peak profiles")
-    parser.add_argument("--publication-figures", action="store_true", help="Also render text-free PNGs in cutrun_work/visuals/publication_figures")
+    parser.add_argument("--branch", choices=("all", "promoters", "all-genes", "all-peaks"), default="all")
+    parser.add_argument("--publication-figures", action="store_true", help="Also render text-free PNGs within each visual branch")
     parser.add_argument("--no-text", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
-    if sum((args.rpkm_only, args.peak_associations_only, args.peak_profiles_only)) > 1:
-        parser.error("Select at most one --*-only option")
     if args.no_text:
-        VISUALS = PUBLICATION_FIGURES
         enable_text_free_rendering()
     if args.dry_run:
         print("[DRY-RUN] Would render the registered CUT&RUN figures.")
         return
     prepare_inputs()
-    if args.publication_figures:
-        PUBLICATION_FIGURES.mkdir(parents=True, exist_ok=True)
-    if args.peak_associations_only:
-        render_peak_associations(args.no_text)
-        if args.publication_figures and not args.no_text:
-            subprocess.run([sys.executable, str(Path(__file__).resolve()), "--no-text", "--peak-associations-only"], check=True)
-        return
+    selected = {
+        "promoters": args.branch in ("all", "promoters"),
+        "all-genes": args.branch in ("all", "all-genes"),
+        "all-peaks": args.branch in ("all", "all-peaks"),
+    }
+    branch_dirs = {"promoters": PROMOTER_VISUALS, "all-genes": GENE_VISUALS, "all-peaks": PEAK_VISUALS}
+    output_dirs = {
+        key: path / "publication_figures" if args.no_text else path
+        for key, path in branch_dirs.items()
+    }
+    for key, enabled in selected.items():
+        if enabled:
+            output_dirs[key].mkdir(parents=True, exist_ok=True)
     required = [REFERENCE_DIR / "gencode.vM25.annotation.gtf", CUTRUN_ROOT / "data" / "GeneBodies_M25.bed6", IGG, *TRACKS.values()]
     missing = [str(path) for path in required if not path.is_file() or path.stat().st_size == 0]
     if missing:
         raise FileNotFoundError("Missing CUT&RUN figure inputs:\n" + "\n".join(missing))
-    if args.peak_profiles_only:
-        module = configure_additional()
-        module.render_peak_associated_gene_profiles()
-        if args.publication_figures and not args.no_text:
-            subprocess.run([sys.executable, str(Path(__file__).resolve()), "--no-text", "--peak-profiles-only"], check=True)
-        return
+    if selected["all-genes"] or selected["all-peaks"]:
+        render_peak_associations(args.no_text, output_dirs["all-genes"], output_dirs["all-peaks"],
+                                 selected["all-genes"], selected["all-peaks"])
     primary = configure_primary()
     primary.NO_TEXT_VISUALS = None
     primary.TEXT_FREE = args.no_text
-    if args.rpkm_only:
-        primary.render_rpkm_profiles(primary.promoter_sets())
-        if args.publication_figures and not args.no_text:
-            subprocess.run([sys.executable, str(Path(__file__).resolve()), "--no-text", "--rpkm-only"], check=True)
-        print(f"[DONE] CUT&RUN RPKM figures: {VISUALS}")
-        return
-    primary.main()
-    render_peak_associations(args.no_text)
     additional = configure_additional()
     additional.NO_TEXT_VISUALS = None
-    additional.main()
+    additional.TEXT_FREE = args.no_text
+    if selected["promoters"]:
+        primary.render_promoter_branch(output_dirs["promoters"])
+        additional.VISUALS = output_dirs["promoters"]
+        additional.render_promoter_gene_profile()
+    if selected["all-genes"]:
+        primary.render_peak_associated_branch(output_dirs["all-genes"])
+        additional.VISUALS = output_dirs["all-genes"]
+        additional.render_peak_associated_gene_profile()
+    if selected["all-peaks"]:
+        additional.VISUALS = output_dirs["all-peaks"]
+        additional.render_peak_associated_gene_profiles()
     if args.publication_figures and not args.no_text:
-        subprocess.run([sys.executable, str(Path(__file__).resolve()), "--no-text"], check=True)
-        print(f"[DONE] CUT&RUN publication figures: {PUBLICATION_FIGURES}")
+        subprocess.run([sys.executable, str(Path(__file__).resolve()), "--no-text", "--branch", args.branch], check=True)
     print(f"[DONE] CUT&RUN figures: {VISUALS}")
 
 
-def render_peak_associations(no_text: bool = False) -> None:
+def render_peak_associations(no_text: bool, gene_visuals: Path, peak_visuals: Path,
+                             render_genes: bool, render_peaks: bool) -> None:
     module = load_module("render_peak_associated_genes.py")
     module.CUTRUN = CUTRUN_ROOT
     module.DATA = FIGURE_DATA
     module.GTF = REFERENCE_DIR / "gencode.vM25.annotation.gtf"
-    module.VISUALS = VISUALS
+    module.GENE_VISUALS = gene_visuals
+    module.PEAK_VISUALS = peak_visuals
     module.TEXT_FREE = no_text
+    module.RENDER_GENES = render_genes
+    module.RENDER_PEAKS = render_peaks
     module.main()
 
 

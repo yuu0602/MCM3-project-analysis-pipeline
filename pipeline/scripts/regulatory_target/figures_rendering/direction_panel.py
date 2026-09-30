@@ -28,6 +28,10 @@ def _args() -> argparse.Namespace:
         p.add_argument(f"--{k.replace('_','-')}", dest=k, required=True, type=float)
     p.add_argument("--hide-numbers", action="store_true")
     p.add_argument("--no-text", action="store_true")
+    p.add_argument("--center-label", default=None)
+    p.add_argument("--center-detail", default=None)
+    p.add_argument("--left-label", default=None)
+    p.add_argument("--right-label", default=None)
     return p.parse_args()
 
 
@@ -82,7 +86,7 @@ def main() -> None:
     if not a.no_text:
         ax.text(0.06, 0.93, a.panel_letter, transform=ax.transAxes, ha="center", va="center",
                 fontsize=a.fs_panel_letter, fontweight="bold", color="black", zorder=30)
-        ax.text(0.50, 0.94, f"{a.factor} CUT&RUN", transform=ax.transAxes, ha="center", va="center",
+        ax.text(0.50, 0.94, a.center_label or f"{a.factor} CUT&RUN", transform=ax.transAxes, ha="center", va="center",
                 fontsize=a.fs_title, fontweight="bold", color="black", zorder=30)
     if not a.hide_numbers and not a.no_text:
         ax.text(0.50, 0.885, f"({fmt_int(a.n_center)})", transform=ax.transAxes, ha="center", va="center",
@@ -98,6 +102,9 @@ def main() -> None:
                 fontsize=a.fs_num_center, fontweight="bold", color="white", zorder=30)
         ax.text(a.cx, a.cy, fmt_int(a.n_only_center), transform=ax.transAxes, ha="center", va="center",
                 fontsize=a.fs_num_center, fontweight="bold", color=a.stroke_col, zorder=30)
+        if a.center_detail:
+            ax.text(a.cx, a.cy - .12, a.center_detail, transform=ax.transAxes, ha="center", va="center",
+                    fontsize=12, fontweight="bold", color=a.stroke_col, zorder=30)
         ax.text(a.rx + 0.03, a.ry, fmt_int(a.n_only_down), transform=ax.transAxes, ha="center", va="center",
                 fontsize=a.fs_num_center, fontweight="bold", color="white", zorder=30)
         if a.n_overlap_up > 0:
@@ -109,9 +116,9 @@ def main() -> None:
 
     # Bottom labels
     if not a.no_text:
-        ax.text(a.lx, 0.155, f"{a.factor}-KD Up", transform=ax.transAxes, ha="center", va="center",
+        ax.text(a.lx, 0.155, a.left_label or f"{a.factor}-KD Up", transform=ax.transAxes, ha="center", va="center",
                 fontsize=a.fs_bottom_lab, fontweight="bold", color="black", zorder=30)
-        ax.text(a.rx, 0.155, f"{a.factor}-KD Down", transform=ax.transAxes, ha="center", va="center",
+        ax.text(a.rx, 0.155, a.right_label or f"{a.factor}-KD Down", transform=ax.transAxes, ha="center", va="center",
                 fontsize=a.fs_bottom_lab, fontweight="bold", color="black", zorder=30)
     if not a.hide_numbers and not a.no_text:
         ax.text(a.lx, 0.110, f"({fmt_int(a.n_up)})", transform=ax.transAxes, ha="center", va="center",

@@ -26,10 +26,23 @@ def plot_triple_venn(
         len(a - b - c), len(b - a - c), len((a & b) - c),
         len(c - a - b), len((a & c) - b), len((b & c) - a), len(a & b & c),
     )
+    plot_region_counts(values, labels, tuple(len(item) for item in sets), output,
+                       show_numbers=show_numbers, show_totals=show_totals)
+
+
+def plot_region_counts(values, labels, totals, output, show_numbers=True,
+                       show_totals=True, locus_gene_groups=False):
+    # Locus-associated gene categories are not disjoint gene sets. Use a
+    # schematic layout so circle area does not imply additive gene totals.
+    layout = (1, 1, 1, 1, 1, 1, 1) if locus_gene_groups else values
     figure = plt.figure(figsize=(6.3, 6.3), dpi=300, facecolor="white")
     axis = figure.add_axes([0.06, 0.10, 0.88, 0.78], facecolor="white")
-    diagram = venn3(subsets=values, set_labels=("", "", ""), ax=axis)
-    circles = venn3_circles(subsets=values, ax=axis, linewidth=1.0, color="#222222")
+    diagram = venn3(subsets=layout, set_labels=("", "", ""), ax=axis)
+    circles = venn3_circles(subsets=layout, ax=axis, linewidth=1.0, color="#222222")
+    for region, value in zip(("100", "010", "110", "001", "101", "011", "111"), values):
+        text = diagram.get_label_by_id(region)
+        if text is not None:
+            text.set_text(str(value))
     for circle in circles:
         if circle is not None:
             circle.set_alpha(0.45)
@@ -67,7 +80,6 @@ def plot_triple_venn(
     axis.set_aspect("equal", adjustable="box")
     axis.set_axis_off()
     if show_totals:
-        totals = tuple(len(item) for item in sets)
         positions = ((0.10, 0.84), (0.78, 0.77), (0.76, 0.16))
         for label, total, position in zip(labels, totals, positions):
             figure.text(
@@ -79,6 +91,11 @@ def plot_triple_venn(
                 fontweight="bold",
                 color="#2A2A2A",
             )
+    if locus_gene_groups and show_numbers:
+        figure.text(.5, .95, "Genes associated with peak-overlap classes", ha="center",
+                    fontsize=12, fontweight="bold")
+        figure.text(.5, .035, "Genes may occur in multiple locus classes.", ha="center",
+                    fontsize=10, fontweight="bold")
     output.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output, dpi=300, bbox_inches="tight", facecolor="white")
     plt.close(figure)

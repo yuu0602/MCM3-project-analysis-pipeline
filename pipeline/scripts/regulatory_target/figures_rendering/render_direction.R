@@ -17,7 +17,7 @@ local({
   grDevices::pdf(file = NULL)
 
 
-# Intersect promoter-bound genes with directional DEGs and render summary figures.
+# Intersect CUT&RUN-associated genes with directional DEGs and render summary figures.
 
 options(stringsAsFactors = FALSE)
 suppressPackageStartupMessages({
@@ -30,9 +30,12 @@ suppressPackageStartupMessages({
 FACTORS <- c("MCM3", "NONO", "PSPC1")
 MOUSE_ENSEMBL_KEYS <- AnnotationDbi::keys(org.Mm.eg.db, keytype = "ENSEMBL")
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) > 2L) stop("Usage: render_direction.R [run_root] [publication_figures]", call. = FALSE)
+if (length(args) < 3L || length(args) > 4L) stop("Usage: render_direction.R run_root mode output_root [publication_figures]", call. = FALSE)
 RUN_ROOT <- normalizePath(args[[1]], mustWork = TRUE)
-PUBLICATION_DIR <- if (length(args) == 2L) normalizePath(args[[2]], mustWork = FALSE) else NULL
+ANALYSIS_MODE <- args[[2]]
+if (!ANALYSIS_MODE %in% c("promoters", "all_genes")) stop("Unknown analysis mode: ", ANALYSIS_MODE, call. = FALSE)
+OUTDIR_BASE <- normalizePath(args[[3]], mustWork = FALSE)
+PUBLICATION_DIR <- if (length(args) == 4L) normalizePath(args[[4]], mustWork = FALSE) else NULL
 script_args <- commandArgs(trailingOnly = FALSE)
 script_file <- sub("^--file=", "", script_args[grepl("^--file=", script_args)])[1]
 GTF_M25 <- file.path(RUN_ROOT, "reference", "gencode.vM25.annotation.gtf")
@@ -42,8 +45,8 @@ if (!file.exists(file.path(PROMOTER_DIR, PROMOTER_SENTINEL))) {
   stop("Could not find final promoter-gene tables in: ", PROMOTER_DIR, call. = FALSE)
 }
 DEG_DIR <- file.path(RUN_ROOT, "deg_work", "data")
-OUTDIR_BASE <- file.path(RUN_ROOT, "regulatory_work")
-VISUAL_DIR <- file.path(OUTDIR_BASE, "visuals")
+ASSOCIATED_GENE_DIR <- file.path(RUN_ROOT, "cutrun_work", "data", "figure_inputs", "protein_coding_peak_associations")
+VISUAL_DIR <- OUTDIR_BASE
 OUTDIR <- file.path(OUTDIR_BASE, "data")
 VENN_HELPER <- file.path(dirname(script_file), "venn.py")
 CHAIN_VENN_HELPER <- file.path(dirname(script_file), "direction_panel.py")
@@ -52,11 +55,13 @@ stop_if_missing <- function(path) {
   if (!file.exists(path)) stop("Missing required file: ", path, call. = FALSE)
 }
 
-read_gene_list <- function(path) {
+read_gene_list <- function(path, column = "gene") {
   stop_if_missing(path)
   tab <- read.delim(path, check.names = FALSE, stringsAsFactors = FALSE)
-  if (!"gene" %in% names(tab)) stop("Missing gene column in: ", path, call. = FALSE)
-  sort(unique(trimws(as.character(tab$gene))[nzchar(trimws(as.character(tab$gene))) & !is.na(tab$gene)]))
+  if (!column %in% names(tab)) stop("Missing ", column, " column in: ", path, call. = FALSE)
+  values <- trimws(as.character(tab[[column]]))
+  if (column == "gene_id") values <- sub("\\..*$", "", values)
+  sort(unique(values[nzchar(values) & !is.na(values)]))
 }
 
 write_gene_list <- function(path, genes) {
@@ -120,6 +125,23 @@ read_deg_symbols <- function(path, factor, direction, recover_missing_symbols = 
   list(genes = sort(unique(final[!is.na(final)])), audit = audit, n_input = length(ids))
 }
 
+read_deg_ids <- function(path, factor, direction) {
+  stop_if_missing(path)
+  tab <- read.delim(path, check.names = FALSE, stringsAsFactors = FALSE)
+  if (!"gene_id" %in% names(tab)) stop("Missing gene_id column in: ", path, call. = FALSE)
+  ids <- sub("\\..*$", "", trimws(as.character(tab$gene_id)))
+  ids <- sort(unique(ids[nzchar(ids) & !is.na(ids)]))
+  list(
+    genes = ids,
+    audit = data.frame(
+      factor = factor, direction = direction, gene_id = ids,
+      original_gene_symbol = NA_character_, final_gene_symbol = NA_character_,
+      symbol_source = "Ensembl_ID_primary", stringsAsFactors = FALSE
+    ),
+    n_input = nrow(tab)
+  )
+}
+
 assign_classes <- function(bound, up, down) {
   deg <- union(up, down)
   list(
@@ -169,6 +191,7 @@ draw_direction_panel <- function(panel_letter, factor, n_center, n_up, n_down,
     "--fs-num-center", 22, "--fs-num-overlap", 17,
     "--fs-bottom-lab", 20, "--fs-bottom-n", 18
   )
+  if (ANALYSIS_MODE == "all_genes") args <- c(args, "--center-label", "Shared-peak-associated genes")
   if (no_text) args <- c(args, "--no-text")
   status <- system2(find_python(), args = shQuote(as.character(args)))
   if (status != 0L) stop("Chain-Venn helper failed with status ", status, call. = FALSE)
@@ -196,7 +219,7 @@ draw_venn <- function(sets, out_png, hide_numbers = FALSE) {
   )
   args <- c(
     VENN_HELPER, "--out", out_png,
-    "--title", "Regulatory targets overlap (promoter-bound AND DEG)",
+    "--title", if (ANALYSIS_MODE == "promoters") "Regulatory targets overlap (promoter-bound AND DEG)" else "Shared-peak-associated DEGs",
     "--a-name", "MCM3", "--b-name", "NONO", "--c-name", "PSPC1",
     "--a-total", length(a), "--b-total", length(b), "--c-total", length(c),
     "--n100", regions[["n100"]], "--n010", regions[["n010"]], "--n001", regions[["n001"]],
@@ -223,11 +246,21 @@ panel_letters <- c("A", "B", "C")
 
 for (i in seq_along(FACTORS)) {
   factor <- FACTORS[[i]]
-  bound <- read_gene_list(file.path(PROMOTER_DIR, paste0("Venn_PromoterGenes_", factor, ".tsv")))
-  up_result <- read_deg_symbols(file.path(DEG_DIR, paste0("VennDiagram_UP_", factor, "_genes.tsv")), factor, "Up",
-                                recover_missing_symbols = TRUE)
-  down_result <- read_deg_symbols(file.path(DEG_DIR, paste0("VennDiagram_DOWN_", factor, "_genes.tsv")), factor, "Down",
+  bound_path <- if (ANALYSIS_MODE == "promoters") {
+    file.path(PROMOTER_DIR, paste0("Venn_PromoterGenes_", factor, ".tsv"))
+  } else {
+    file.path(OUTDIR, "SharedPeakAssociatedGenes.tsv")
+  }
+  bound <- read_gene_list(bound_path, if (ANALYSIS_MODE == "promoters") "gene" else "gene_id")
+  if (ANALYSIS_MODE == "promoters") {
+    up_result <- read_deg_symbols(file.path(DEG_DIR, paste0("VennDiagram_UP_", factor, "_genes.tsv")), factor, "Up",
                                   recover_missing_symbols = TRUE)
+    down_result <- read_deg_symbols(file.path(DEG_DIR, paste0("VennDiagram_DOWN_", factor, "_genes.tsv")), factor, "Down",
+                                    recover_missing_symbols = TRUE)
+  } else {
+    up_result <- read_deg_ids(file.path(DEG_DIR, paste0("VennDiagram_UP_", factor, "_genes.tsv")), factor, "Up")
+    down_result <- read_deg_ids(file.path(DEG_DIR, paste0("VennDiagram_DOWN_", factor, "_genes.tsv")), factor, "Down")
+  }
   up <- up_result$genes
   down <- down_result$genes
   mapping_audits[[factor]] <- rbind(up_result$audit, down_result$audit)
@@ -235,12 +268,12 @@ for (i in seq_along(FACTORS)) {
   direct <- union(classes$A_bound_UP, classes$B_bound_DOWN)
   direct_sets[[factor]] <- direct
 
-  write_gene_list(file.path(OUTDIR, paste0("promoter_vs_DEG_direction_", factor, "_promoter_genes.tsv")), bound)
+  write_gene_list(file.path(OUTDIR, paste0("promoter_vs_DEG_direction_", factor, "_CUTRUN_genes.tsv")), bound)
   write_gene_list(file.path(OUTDIR, paste0("Venn_target_", factor, "_genes.tsv")), direct)
   universe <- sort(unique(c(bound, up, down)))
   write.table(data.frame(
     gene = universe,
-    promoter_bound = universe %in% bound,
+    CUTRUN_associated = universe %in% bound,
     upregulated = universe %in% up,
     downregulated = universe %in% down
   ), file.path(OUTDIR, paste0("promoter_vs_DEG_direction_", factor, "_data.tsv")),
@@ -249,7 +282,7 @@ for (i in seq_along(FACTORS)) {
     write_gene_list(file.path(OUTDIR, paste0("promoter_vs_DEG_direction_", factor, "_", class_name, ".tsv")), classes[[class_name]])
   }
   summary_rows[[factor]] <- data.frame(
-    factor = factor, n_promoter_bound = length(bound), n_deg_up_raw = up_result$n_input, n_deg_down_raw = down_result$n_input,
+    factor = factor, n_CUTRUN_associated = length(bound), n_deg_up_raw = up_result$n_input, n_deg_down_raw = down_result$n_input,
     n_deg_up = length(up), n_deg_down = length(down),
     n_deg_total = length(union(up, down)), n_A_bound_UP = length(classes$A_bound_UP),
     n_B_bound_DOWN = length(classes$B_bound_DOWN), n_C_bound_NOCHANGE = length(classes$C_bound_NOCHANGE),
@@ -327,13 +360,15 @@ if (!is.null(PUBLICATION_DIR)) panel$stack_three_pngs(panel_pngs_no_text,
 )
 
 writeLines(c(
-  "direct_target_rule\tpromoter-bound AND DEG",
-  "CUTRUN_promoter_source\tcutrun_work/05_promoters/Venn_PromoterGenes_<FACTOR>.tsv",
-  "CUTRUN_threshold\tPooled matched-IgG MACS3 q <=0.01 and FE >=3; factor/IgG >=2 in 2/2 biological replicates; TSS +/-1,000 bp; promoter overlap >=250 bp",
-  "analysis_role\tTwo-biological-replicate 2020 matched-IgG promoter evidence",
+  paste0("analysis_mode\t", ANALYSIS_MODE),
+  paste0("target_rule\t", if (ANALYSIS_MODE == "promoters") "promoter-bound AND DEG" else "protein-coding gene assigned to a three-factor shared peak locus AND DEG"),
+  paste0("CUTRUN_gene_source\t", if (ANALYSIS_MODE == "promoters") "cutrun_work/05_promoters/Venn_PromoterGenes_<FACTOR>.tsv" else "SharedPeakAssociatedGenes.tsv; derived from canonical shared peak loci and Step 06 gene assignments"),
+  paste0("CUTRUN_definition\t", if (ANALYSIS_MODE == "promoters") "Unmodified Step 05 promoter-bound sets" else "region_mask=7 in cutrun_work/data/PeakLoci/Venn_Peaks_loci.tsv; no additional peak calling or threshold changes"),
+  paste0("analysis_role\t", if (ANALYSIS_MODE == "promoters") "Two-biological-replicate 2020 matched-IgG promoter evidence" else "Shared-peak-associated regulatory candidates; nearest-TSS association does not establish direct regulation"),
+  paste0("group_meaning\t", if (ANALYSIS_MODE == "promoters") "Overlap of factor-specific promoter-bound DEG sets" else "Knockdown DEG overlap within one shared-peak gene universe; only denotes DEG status, not exclusive binding"),
   "RNAseq_source\tfinal-local DEG tables",
   "RNAseq_threshold\tBH FDR <= 0.05 and absolute log2FC >= 0.28",
-  "gene_symbol_mapping\tMissing symbols mapped from Ensembl IDs through GENCODE M25 then org.Mm.eg.db"
+  paste0("counting_identifier\t", if (ANALYSIS_MODE == "promoters") "gene symbol; missing symbols mapped through GENCODE M25 then org.Mm.eg.db" else "Ensembl gene ID without version; symbols are labels only")
 ), file.path(OUTDIR, "AnalysisParameters.tsv"))
 
 message("[DONE] Wrote promoter-versus-DEG and regulatory-target outputs to: ", OUTDIR)
