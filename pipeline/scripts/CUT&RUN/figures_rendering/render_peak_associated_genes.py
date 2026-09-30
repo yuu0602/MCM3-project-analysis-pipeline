@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render peak Venns, locus-defined gene groups, and distribution pies."""
+"""Render peak Venns, independent peak-associated gene sets, and distribution pies."""
 
 from bisect import bisect_left
 from collections import defaultdict
@@ -18,12 +18,13 @@ PROJECT = Path(__file__).resolve().parent
 RUN = PROJECT.parents[2]
 CUTRUN = RUN / "cutrun_work"
 DATA = CUTRUN / "data" / "figure_inputs"
-GENE_VISUALS = CUTRUN / "visuals" / "all_genes_visuals"
-PEAK_VISUALS = CUTRUN / "visuals" / "all_peaks_visuals"
+GENE_VISUALS = CUTRUN / "visuals" / "all_protein_coding_genes_visuals"
+PEAK_VISUALS = CUTRUN / "visuals" / "all_protein_coding_peaks_visuals"
 NO_TEXT_VISUALS: Path | None = None
 TEXT_FREE = False
 RENDER_GENES = True
 RENDER_PEAKS = True
+GENE_MEMBERSHIP = "independent_genes"
 GTF = RUN / "reference" / "gencode.vM25.annotation.gtf"
 FACTORS = ("MCM3", "NONO", "PSPC1")
 ASSAYS = (*FACTORS, "IgG")
@@ -53,11 +54,6 @@ def locus_defined_gene_groups(output: Path) -> pd.DataFrame:
         n_genes=("gene_id", "nunique"), n_associated_peaks=("peak_id", "nunique")
     ).reset_index()
     counts.to_csv(output / "LocusDefinedGeneGroups_counts.tsv", sep="\t", index=False)
-    counts.assign(region=counts.region.str.split("_").str[0],
-                  counting_basis="distinct genes per locus class; non-disjoint categories").to_csv(
-        output / "Venn_PeakAssociatedGenes_counts.tsv", sep="\t", index=False)
-    groups.assign(region=groups.region.str.split("_").str[0]).rename(columns={"gene_id": "member"}).to_csv(
-        output / "Venn_PeakAssociatedGenes_members.tsv", sep="\t", index=False)
     shared = links.loc[links.region_mask.eq(7)].groupby("gene_id", as_index=False).agg(
         gene=("gene", "first"), n_shared_peaks=("peak_id", "nunique")
     )
@@ -68,21 +64,11 @@ def locus_defined_gene_groups(output: Path) -> pd.DataFrame:
         "assignment": "Existing Step 06 all qualifying promoter links (TSS +/-1000 bp; overlap >=250 bp), otherwise nearest-TSS fallback; protein-coding filter afterward",
         "counting_unit": "Unique Ensembl gene IDs within each locus class",
         "groups_are_disjoint": False,
-        "figure": "Venn_PeakAssociatedGenes.png is a schematic three-circle summary, not a conventional gene-set Venn; circle totals are distinct per-factor genes, region counts are not additive",
+        "role": "Membership source for shared_locus figures; not for independent_genes figures",
         "interpretation": "A gene may occur in several locus classes; only describes factor membership at a locus, not exclusive binding across the gene",
-        "profiles": "One gene body per gene ID within each group; groups selected by overlapping loci, not independent gene-list intersections",
+        "profiles": "shared_locus profiles use these groups; independent_genes profiles use independent per-factor gene-set intersections",
     }, indent=2) + "\n")
     return groups
-
-
-def render_locus_gene_groups(venn, output: Path) -> None:
-    counts = pd.read_csv(output / "LocusDefinedGeneGroups_counts.tsv", sep="\t").set_index("region_mask")
-    order = (1, 2, 3, 4, 5, 6, 7)
-    values = [int(counts.loc[mask, "n_genes"]) if mask in counts.index else 0 for mask in order]
-    links = pd.read_csv(output / "LocusDefinedPeakGeneAssignments.tsv", sep="\t")
-    totals = tuple(links.loc[(links.region_mask & bit).ne(0), "gene_id"].nunique() for bit in (1, 2, 4))
-    venn.plot_region_counts(values, FACTORS, totals, GENE_VISUALS / "Venn_PeakAssociatedGenes.png",
-                            show_numbers=not TEXT_FREE, show_totals=not TEXT_FREE, locus_gene_groups=True)
 
 
 def gene_tss() -> dict[str, list[tuple[int, str]]]:
@@ -274,14 +260,13 @@ def main() -> None:
         GENE_VISUALS.mkdir(parents=True, exist_ok=True)
     if RENDER_PEAKS:
         PEAK_VISUALS.mkdir(parents=True, exist_ok=True)
-    genes, _ = protein_coding_assignments(output)
+    genes, peaks = protein_coding_assignments(output)
     locus_defined_gene_groups(output)
-    peaks = peak_sets()
-    for table in peaks.values():
-        table["peak_id"] = (
-            table["chrom"].astype(str) + ":" + table["start"].astype(str)
-            + "-" + table["end"].astype(str)
-        )
+    retained_ids = set().union(*(set(peaks[f].peak_id) for f in FACTORS))
+    loci = pd.read_csv(CUTRUN / "data/PeakLoci/Venn_Peaks_loci.tsv", sep="\t")
+    loci.loc[loci.locus_id.isin(retained_ids)].to_csv(
+        output / "Venn_Peaks_loci.tsv", sep="\t", index=False
+    )
     renderer, categories = gene_annotation_renderer(output)
     for is_gene, tables in ((False, peaks), (True, genes)):
         if (is_gene and not RENDER_GENES) or (not is_gene and not RENDER_PEAKS):
@@ -304,8 +289,37 @@ def main() -> None:
     if RENDER_PEAKS:
         render_venn(venn, peaks, "peak_id", "Venn_Peaks", output, PEAK_VISUALS)
         shared_peak_distribution(renderer, categories, peaks, output)
-    if RENDER_GENES:
-        render_locus_gene_groups(venn, output)
+    if RENDER_GENES and GENE_MEMBERSHIP == "shared_locus":
+        gene_output = output / GENE_MEMBERSHIP
+        gene_output.mkdir(parents=True, exist_ok=True)
+        counts = pd.read_csv(output / "LocusDefinedGeneGroups_counts.tsv", sep="\t")
+        counts.assign(region=counts.region.str.split("_").str[0],
+                      counting_basis="distinct genes per locus class; non-disjoint categories").to_csv(
+            gene_output / "Venn_PeakAssociatedGenes_counts.tsv", sep="\t", index=False)
+        groups = pd.read_csv(output / "LocusDefinedGeneGroups.tsv", sep="\t")
+        groups.assign(region=groups.region.str.split("_").str[0]).rename(columns={"gene_id": "member"}).to_csv(
+            gene_output / "Venn_PeakAssociatedGenes_members.tsv", sep="\t", index=False)
+        indexed = counts.set_index("region_mask")
+        values = [int(indexed.loc[mask, "n_genes"]) if mask in indexed.index else 0 for mask in range(1, 8)]
+        totals = tuple(genes[f].gene_id.nunique() for f in FACTORS)
+        venn.plot_region_counts(values, FACTORS, totals, GENE_VISUALS / "Venn_PeakAssociatedGenes.png",
+                                show_numbers=not TEXT_FREE, show_totals=not TEXT_FREE, locus_gene_groups=True)
+        (gene_output / "Venn_PeakAssociatedGenes_parameters.json").write_text(json.dumps({
+            "same_locus_required": True, "groups_are_disjoint": False,
+            "membership": "Genes assigned after exact peak-locus intersection",
+            "figure": "Schematic locus-defined gene categories, not a conventional gene Venn; counts are not additive",
+        }, indent=2) + "\n")
+    elif RENDER_GENES:
+        gene_output = output / GENE_MEMBERSHIP
+        gene_output.mkdir(parents=True, exist_ok=True)
+        render_venn(venn, genes, "gene_id", "Venn_PeakAssociatedGenes", gene_output, GENE_VISUALS)
+        (gene_output / "Venn_PeakAssociatedGenes_parameters.json").write_text(json.dumps({
+            "membership": "Independent per-factor protein-coding peak-associated gene sets",
+            "shared_genes": "Intersection of all three gene lists; peaks may occupy different genomic locations",
+            "counting_unit": "Unique Ensembl gene ID; seven disjoint gene Venn regions",
+            "same_locus_required": False,
+            "peak_calling_and_assignment": "Unchanged; only gene-set intersection definition differs from locus-first groups",
+        }, indent=2) + "\n")
     print("[DONE] Peak-associated gene figures:", GENE_VISUALS)
     print("[DONE] Whole-genome peak figures:", PEAK_VISUALS)
 

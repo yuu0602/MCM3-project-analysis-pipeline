@@ -1,8 +1,15 @@
 # Regulatory Target Analyses
 
+Gene-level TSV exports display GENCODE M25 gene symbols in the `gene` column
+without Ensembl ID columns. Stable-ID copies used for matching are stored only
+in each result's `data/internal_ids/`. Rows are never merged by
+symbol, and unresolved symbols stop export instead of silently dropping rows.
+BED and deepTools matrix identifiers remain stable internal IDs; their gene
+names are available in the accompanying gene tables.
+
 | Stage | Script | Purpose |
 | --- | --- | --- |
-| 07 | `07_define_regulatory_targets.py` | Integrate current directional DEGs with promoter-bound genes, shared-peak-associated genes, and shared genomic peaks. |
+| 07 | `07_define_regulatory_targets.py` | Integrate current directional DEGs with promoter-bound genes, common peak-associated genes, and shared genomic peaks. |
 
 Step 07 uses the existing bulk RNA-seq DEG tables and does not rerun
 differential expression. It generates three separate branches under
@@ -16,21 +23,31 @@ The promoter-bound rule is defined in CUT&RUN Step 05.
 
 ## All-Gene Branch
 
-`all_genes_visuals/` starts with the three-factor shared genomic loci in the
-CUT&RUN peak Venn (`region_mask=7`), then uses Step 06's protein-coding gene
-assignments to those loci. All promoters overlapping a peak by >=250 bp at
-TSS +/-1 kb are assigned; nearest-TSS fallback applies only when no promoter
-qualifies. Biotype filtering happens after assignment.
+Two definitions are preserved in separate folders under `all_protein_coding_genes_visuals/`:
 
-The same shared-peak gene universe is intersected with each knockdown's DEGs.
-Ensembl IDs without version suffixes are used throughout; symbols are labels.
-This gene universe matches the triple-shared class in CUT&RUN's
-`Venn_PeakAssociatedGenes.png`: membership requires association with a common
-genomic peak locus, not separate peaks assigned to the same gene.
-Nearest-TSS associations remain candidates rather than proof of direct regulation.
-`data/SharedPeakLoci.tsv`, `SharedPeakGeneAssignments.tsv`,
-`SharedPeakAssociatedGenes.tsv`, and `SharedPeakParameters.json` record the
-source loci, assignments, gene universe, and input checksums.
+- `shared_locus/`: 3,049 genes assigned to three-factor shared genomic loci.
+  Regulatory Groups A-D currently contain 36, 47, 15, and 55 genes.
+- `independent_genes/`: 6,156 genes present independently in all three factor
+  gene lists. Regulatory Groups A-D currently contain 64, 87, 25, and 123 genes.
+
+Each has its own figures, source data, publication figures, and RNA-seq trend
+workbook. Run with `--gene-membership shared_locus` or `independent_genes` to
+select one. The default `both` renders both without overwriting one another.
+For `shared_locus`, `SharedPeakAssociatedGenes.tsv`, `SharedPeakLoci.tsv`,
+`SharedPeakGeneAssignments.tsv`, and `SharedPeakParameters.json` record the
+strict universe and provenance. For `independent_genes`, the definition follows.
+
+`all_protein_coding_genes_visuals/independent_genes/` starts with the intersection of the three independent
+protein-coding peak-associated gene lists from Step 06. The current intersection
+contains 6,156 genes and matches CUT&RUN's `Venn_PeakAssociatedGenes.png`.
+Associated peaks can occur at different genomic loci for each factor.
+Peak calling and peak-to-gene assignment rules are unchanged.
+
+The same common gene universe is intersected with each knockdown's DEGs.
+Ensembl IDs without version suffixes are used internally; exported gene lists
+use symbols. `data/CommonPeakAssociatedGenes.tsv` and `CommonGeneParameters.json`
+record the universe, independent factor totals, definition, and input checksums.
+Association does not establish same-locus occupancy or direct regulation.
 
 Both gene branches contain:
 
@@ -44,14 +61,21 @@ Both gene branches contain:
 
 Groups A-D describe the DEG intersections: A, all three; B, MCM3+PSPC1 only;
 C, NONO+PSPC1 only; D, MCM3+NONO only. In the all-gene branch, every input gene
-has three-factor shared-peak association, so "only" refers to knockdown DEG
+has association with all three factors, so "only" refers to knockdown DEG
 status, never exclusive CUT&RUN binding. Up/Down/Mix reports RNA-seq direction
 agreement among the indicated knockdowns. Metaprofiles average the selected
 gene bodies, not the shared peak centers.
 
 ## All-Peak Branch
 
-`all_peaks_visuals/` uses all three-factor shared canonical loci (`region_mask=7`)
+The peak branch has `shared_locus/` and `independent_peaks/` subfolders, each
+with its own figures, source tables, matrices, and text-free counterparts.
+Use `--peak-membership shared_locus`, `--peak-membership independent_peaks`,
+or `--peak-membership both` (default).
+
+### Shared Locus
+
+`all_protein_coding_peaks_visuals/shared_locus/` uses protein-coding-associated three-factor shared canonical loci (`region_mask=7`)
 as its background. Each peak enters a KD-associated set when at least one of
 its assigned protein-coding genes is a DEG for that KD. Existing Step 06 gene
 assignments and current RNA-seq thresholds are unchanged. A peak is counted
@@ -64,7 +88,7 @@ DEG status, not factor-exclusive binding or differential peak occupancy.
 Within one KD, a peak is Up or Down if all its linked DEGs agree, and Mix if it
 links to both directions. A group's Up/Down classification requires agreement
 across every indicated KD; all other combinations are Mix. "No DEG" means no
-assigned significant DEG, including loci without coding assignments or genes
+assigned significant DEG, including genes
 not tested. It is not proof of no biological effect.
 
 This branch includes:
@@ -105,6 +129,34 @@ Its gene lists, peak-to-gene assignments, stranded BEDs, and per-gene matrix
 are saved under `data/Metaprofile_MCM3_target*`. Old `PeakProfile_*` names are no
 longer generated. The two `Pie_TargetBinding_*` figures still use all shared
 peaks as their denominator because they assess the fraction with a DEG link.
+
+### Independent Peaks
+
+`all_protein_coding_peaks_visuals/independent_peaks/` starts from each factor's own retained
+canonical loci with at least one protein-coding gene assignment, without requiring triple CUT&RUN sharing. A regulatory peak
+must be retained for that factor AND have an assigned gene that is a DEG in
+that factor's KD. The existing peak thresholds, genomic-overlap definition,
+gene assignments, RNA-seq thresholds, and plot design are unchanged.
+
+The Venn and Groups A-D intersect peak identities, not gene names. Peaks at
+different coordinates cannot become shared because they map to the same gene.
+Group A is therefore unchanged; single-factor and pairwise target sets can grow.
+Group exclusivity refers to the combined binding-and-DEG criterion: a missing
+factor can mean no retained peak or no assigned DEG for its KD.
+
+The same figure set is generated. Direction-panel centers contain all retained
+protein-coding-associated peaks of the indicated factor. `Pie_TargetBinding_*` denominators are each
+factor's retained peaks, while `Pie_DEGAssociation_*` contains DEG-linked peaks
+only. `Not bound` is distinct from `No DEG` in the full direction table and is
+excluded from that factor's counts and profiles. `data/PeakLoci.tsv` and
+`PeakGeneAssignments.tsv` replace the shared-locus-only input files.
+
+Current regulatory Groups A-D are 53/59/17/68 for `shared_locus` and
+53/241/47/76 for `independent_peaks`. CUT&RUN peak figures themselves remain
+identical because changing a downstream eligibility rule does not change peaks.
+Peak backgrounds are 3,036 loci for `shared_locus` and MCM3 19,588,
+NONO 15,880, PSPC1 29,013 for `independent_peaks`. The biotype filter changes
+background totals and percentages, not DEG-linked peak membership or gene-branch outputs.
 
 ```bash
 python pipeline/scripts/regulatory_target/07_define_regulatory_targets.py --publication-figures

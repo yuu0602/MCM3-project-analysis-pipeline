@@ -31,8 +31,10 @@ args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 3L || length(args) > 4L) stop("Usage: render_targets.R run_root mode output_root [publication_figures]", call. = FALSE)
 RUN_ROOT <- normalizePath(args[[1]], mustWork = TRUE)
 ANALYSIS_MODE <- args[[2]]
+SHARED_LOCUS <- Sys.getenv("MCM3_GENE_MEMBERSHIP", "independent_genes") == "shared_locus"
 if (!ANALYSIS_MODE %in% c("promoters", "all_genes", "all_peaks")) stop("Unknown analysis mode: ", ANALYSIS_MODE, call. = FALSE)
 PEAK_MODE <- ANALYSIS_MODE == "all_peaks"
+INDEPENDENT_PEAKS <- PEAK_MODE && Sys.getenv("MCM3_PEAK_MEMBERSHIP", "shared_locus") == "independent_peaks"
 ID_COLUMN <- if (PEAK_MODE) "peak_id" else "gene"
 UNIT <- if (PEAK_MODE) "peaks" else "genes"
 PROFILE_PREFIX <- "Metaprofile"
@@ -64,11 +66,11 @@ GROUPS <- list(
 )
 if (ANALYSIS_MODE == "all_genes") {
   for (name in names(GROUPS)) {
-    GROUPS[[name]]$title <- paste0("Group ", name, ": shared-peak-associated DEGs (n=%s)")
+    GROUPS[[name]]$title <- paste0("Group ", name, if (SHARED_LOCUS) ": shared-peak-associated DEGs (n=%s)" else ": common peak-associated DEGs (n=%s)")
   }
 }
 if (PEAK_MODE) {
-  for (name in names(GROUPS)) GROUPS[[name]]$title <- paste0("Group ", name, ": DEG-linked shared peaks (n=%s)")
+  for (name in names(GROUPS)) GROUPS[[name]]$title <- paste0("Group ", name, if (INDEPENDENT_PEAKS) ": DEG-linked retained peaks (n=%s)" else ": DEG-linked shared peaks (n=%s)")
 }
 COLORS <- c(MCM3 = "#cf111f", NONO = "#f2a010", PSPC1 = "#4f7db1")
 DIR_COLORS <- c(Up = "#D87070", Down = "#6FA37A", Mix = "#F3D37A")
@@ -91,15 +93,45 @@ for (path in c(GROUP_DIR, GTF, COMPUTE_MATRIX, PLOT_PROFILE, unname(BIGWIGS))) {
 }
 Sys.setenv(MPLCONFIGDIR = file.path(tempdir(), "mcm3_final_mplconfig"))
 
-read_genes <- function(path) {
+read_analysis_table <- function(path) {
   tab <- data.table::fread(path, data.table = FALSE)
+  internal <- file.path(dirname(path), "internal_ids", basename(path))
+  if (!"gene_id" %in% names(tab) && "gene" %in% names(tab) && file.exists(internal)) {
+    stored <- data.table::fread(internal, data.table = FALSE)
+    if (!identical(as.character(tab$gene), as.character(stored$gene))) stop("Internal/public gene table mismatch: ", path, call. = FALSE)
+    tab <- stored
+  }
+  tab
+}
+
+read_genes <- function(path) {
+  tab <- read_analysis_table(path)
   if (!ID_COLUMN %in% names(tab)) stop("Missing identifier column: ", path, call. = FALSE)
-  values <- tab[[ID_COLUMN]]
+  column <- if (ANALYSIS_MODE == "all_genes" && "gene_id" %in% names(tab)) "gene_id" else ID_COLUMN
+  values <- tab[[column]]
   sort(unique(trimws(as.character(values))[nzchar(trimws(as.character(values))) & !is.na(values)]))
 }
 
 write_genes <- function(path, genes) {
-  data.table::fwrite(setNames(data.frame(sort(unique(genes))), ID_COLUMN), path, sep = "\t", quote = FALSE)
+  data.table::fwrite(export_gene_table(setNames(data.frame(sort(unique(genes))), ID_COLUMN)), path, sep = "\t", quote = FALSE)
+}
+
+GENE_NAME_MAP <- NULL
+export_gene_table <- function(tab) {
+  if (!"gene_id" %in% names(tab)) {
+    if (!"gene" %in% names(tab) || !any(grepl("^ENSMUSG[0-9]+", tab$gene))) return(tab)
+    tab$gene_id <- tab$gene
+  }
+  if (is.null(GENE_NAME_MAP)) {
+    annotation <- read_gtf_genes(GTF)
+    GENE_NAME_MAP <<- setNames(annotation$gene_symbol, annotation$gene_id)
+  }
+  ids <- sub("\\..*$", "", tab$gene_id)
+  symbols <- unname(GENE_NAME_MAP[ids])
+  missing <- is.na(symbols) | !nzchar(symbols)
+  symbols[missing] <- ids[missing]
+  tab$gene <- symbols
+  tab[, c("gene", "gene_id", setdiff(names(tab), c("gene", "gene_id"))), drop = FALSE]
 }
 
 class_genes <- function(factor, class_name) {
@@ -169,11 +201,11 @@ binding_pie <- function(factor, all_targets, direct_targets, out, show_numbers =
   if (!all(direct_targets %in% all_targets)) {
     stop("CUT&RUN-associated targets are not a subset of all DEG targets for ", factor, call. = FALSE)
   }
-  bound_label <- if (ANALYSIS_MODE == "promoters") "Targets w/ promoter binding" else "Shared-peak-associated DEGs"
+  bound_label <- if (ANALYSIS_MODE == "promoters") "Targets w/ promoter binding" else if (SHARED_LOCUS) "Shared-peak-associated DEGs" else "Common peak-associated DEGs"
   unbound_label <- if (ANALYSIS_MODE == "promoters") "Targets w/o promoter binding" else "Other DEGs"
   if (PEAK_MODE) {
-    bound_label <- "Shared peaks linked to DEGs"
-    unbound_label <- "Shared peaks without a DEG link"
+    bound_label <- if (INDEPENDENT_PEAKS) "Retained peaks linked to DEGs" else "Shared peaks linked to DEGs"
+    unbound_label <- if (INDEPENDENT_PEAKS) "Retained peaks without a DEG link" else "Shared peaks without a DEG link"
   }
   dat <- data.frame(
     class = c(bound_label, unbound_label),
@@ -190,8 +222,8 @@ binding_pie <- function(factor, all_targets, direct_targets, out, show_numbers =
     ggplot2::theme_void(base_size = 12)
   if (show_numbers) {
     p <- p + ggplot2::labs(
-      title = sprintf(if (PEAK_MODE) "%s KD: shared peaks (n=%s)" else "%s targets (n=%s)", factor, format(length(all_targets), big.mark = ",")),
-      subtitle = if (PEAK_MODE) "At least one assigned protein-coding gene is a DEG" else if (ANALYSIS_MODE == "promoters") "Promoter binding from CUT&RUN (TSS +/- 1 kb)" else "Gene association with three-factor shared CUT&RUN peaks"
+      title = sprintf(if (INDEPENDENT_PEAKS) "%s KD: retained peaks (n=%s)" else if (PEAK_MODE) "%s KD: shared peaks (n=%s)" else "%s targets (n=%s)", factor, format(length(all_targets), big.mark = ",")),
+      subtitle = if (PEAK_MODE) "At least one assigned protein-coding gene is a DEG" else if (ANALYSIS_MODE == "promoters") "Promoter binding from CUT&RUN (TSS +/- 1 kb)" else if (SHARED_LOCUS) "Gene association with three-factor shared CUT&RUN peaks" else "Genes independently associated with all three CUT&RUN factors"
     ) + ggplot2::theme(
       legend.position = "bottom", legend.title = ggplot2::element_blank(),
       legend.text = ggplot2::element_text(size = 11),
@@ -215,7 +247,9 @@ read_gtf_genes <- function(path) {
   data.frame(
     chrom = as.character(GenomeInfoDb::seqnames(gr)), start = as.integer(GenomicRanges::start(gr)) - 1L,
     end = as.integer(GenomicRanges::end(gr)), strand = as.character(GenomicRanges::strand(gr)),
-    gene = gene_values, stringsAsFactors = FALSE
+    gene = gene_values,
+    gene_id = sub("\\..*$", "", as.character(S4Vectors::mcols(gr)$gene_id)),
+    gene_symbol = as.character(S4Vectors::mcols(gr)$gene_name), stringsAsFactors = FALSE
   )
 }
 
@@ -331,7 +365,7 @@ make_mcm3_target_profile <- function(gtf_genes) {
   down <- class_sets$MCM3$down
   prefix <- file.path(REGTARGET_DIR, paste0(PROFILE_PREFIX, "_MCM3_target"))
   if (PEAK_MODE) {
-    evidence <- data.table::fread(file.path(GROUP_DIR, "PeakGeneDEGEvidence.tsv"), data.table = FALSE)
+    evidence <- read_analysis_table(file.path(GROUP_DIR, "PeakGeneDEGEvidence.tsv"))
     selected <- evidence[(evidence$peak_id %in% up & evidence$MCM3 == "Up") |
                          (evidence$peak_id %in% down & evidence$MCM3 == "Down"), , drop = FALSE]
     up <- sort(unique(selected$gene_id[selected$MCM3 == "Up"]))
@@ -412,7 +446,7 @@ if (PEAK_MODE) {
          mix = peak_directions$peak_id[status == "Mix"], indirect = peak_directions$peak_id[status == "No DEG"])
   }), names(direct_sets))
   for (factor in names(direct_sets)) {
-    tab <- data.frame(class = peak_directions[[factor]][peak_directions[[factor]] != "No DEG"])
+    tab <- data.frame(class = peak_directions[[factor]][peak_directions[[factor]] %in% c("Up", "Down", "Mix")])
     lev <- c("Up", "Down", "Mix")
     plot <- pie_plot(sprintf("%s KD: DEG-linked peaks (n=%s)", factor, nrow(tab)), tab,
                      levels = lev, radial_small_labels = TRUE) +
@@ -434,7 +468,8 @@ groups <- list(
   C = setdiff(intersect(direct_sets$NONO, direct_sets$PSPC1), direct_sets$MCM3),
   D = setdiff(intersect(direct_sets$MCM3, direct_sets$NONO), direct_sets$PSPC1)
 )
-regions <- data.table::fread(file.path(GROUP_DIR, paste0("Venn_target_", UNIT, ".tsv")), data.table = FALSE)
+regions <- read_analysis_table(file.path(GROUP_DIR, paste0("Venn_target_", UNIT, ".tsv")))
+if (ANALYSIS_MODE == "all_genes" && "gene_id" %in% names(regions)) regions$gene <- regions$gene_id
 summary_rows <- list()
 pie_paths <- character()
 pie_no_text_paths <- character()
@@ -443,7 +478,7 @@ for (name in names(GROUPS)) {
   if (!setequal(groups[[name]], expected)) stop("Venn mismatch for group ", name, call. = FALSE)
   tab <- summarize_group(groups[[name]], GROUPS[[name]]$tracks)
   write_genes(file.path(GROUP_DIR, paste0("Group", name, "_", UNIT, ".tsv")), groups[[name]])
-  write.table(tab, file.path(GROUP_DIR, paste0("Group", name, "_directions.tsv")), sep = "\t", quote = FALSE, row.names = FALSE)
+  write.table(export_gene_table(tab), file.path(GROUP_DIR, paste0("Group", name, "_directions.tsv")), sep = "\t", quote = FALSE, row.names = FALSE)
   counts <- table(factor(tab$class, levels = c("Up", "Down", "Mix")))
   summary_rows[[name]] <- data.frame(group = name, group_definition = GROUPS[[name]]$label, venn_region = GROUPS[[name]]$region, n_genes = nrow(tab), n_up = counts[["Up"]], n_down = counts[["Down"]], n_mix = counts[["Mix"]], stringsAsFactors = FALSE)
   if (PEAK_MODE) names(summary_rows[[name]])[4] <- "n_peaks"
@@ -495,7 +530,7 @@ writeLines(c(input_parameters, "mix_color\t#F3D37A (yellow)"), file.path(GROUP_D
 binding_summary <- list()
 for (factor in c("NONO", "PSPC1")) {
   all_targets <- union(union(class_sets[[factor]]$up, class_sets[[factor]]$down), class_sets[[factor]]$indirect)
-  if (PEAK_MODE) all_targets <- peak_directions$peak_id
+  if (PEAK_MODE) all_targets <- peak_directions$peak_id[peak_directions[[factor]] != "Not bound"]
   if (!all(direct_sets[[factor]] %in% all_targets)) {
     stop("Target-binding pie inputs are inconsistent for ", factor, call. = FALSE)
   }
@@ -507,7 +542,7 @@ for (factor in c("NONO", "PSPC1")) {
     CUTRUN_associated_percent = 100 * length(unique(direct_sets[[factor]])) / length(unique(all_targets)),
     stringsAsFactors = FALSE
   )
-  if (PEAK_MODE) names(binding_summary[[factor]]) <- c("factor", "total_shared_peaks", "DEG_linked_peaks", "peaks_without_DEG_link", "DEG_linked_percent")
+  if (PEAK_MODE) names(binding_summary[[factor]]) <- c("factor", if (INDEPENDENT_PEAKS) "total_factor_peaks" else "total_shared_peaks", "DEG_linked_peaks", "peaks_without_DEG_link", "DEG_linked_percent")
   binding_pie(factor, all_targets, direct_sets[[factor]], file.path(GROUP_VISUAL_DIR, paste0("Pie_TargetBinding_", factor, ".png")))
   if (!is.null(PUBLICATION_DIR)) binding_pie(factor, all_targets, direct_sets[[factor]],
     file.path(PUBLICATION_DIR, paste0("Pie_TargetBinding_", factor, "_noTexts.png")), show_numbers = FALSE)
@@ -515,7 +550,7 @@ for (factor in c("NONO", "PSPC1")) {
 write.table(do.call(rbind, binding_summary), file.path(GROUP_DIR, "Pie_TargetBinding_summary.tsv"),
             sep = "\t", quote = FALSE, row.names = FALSE)
 
-gtf_genes <- if (PEAK_MODE) data.table::fread(file.path(GROUP_DIR, "SharedPeakLoci.tsv"), data.table = FALSE) else read_gtf_genes(GTF)
+gtf_genes <- if (PEAK_MODE) data.table::fread(file.path(GROUP_DIR, if (INDEPENDENT_PEAKS) "PeakLoci.tsv" else "SharedPeakLoci.tsv"), data.table = FALSE) else read_gtf_genes(GTF)
 profile_summary <- do.call(rbind, lapply(names(GROUPS), function(name) make_group_profile(name, groups[[name]], GROUPS[[name]]$tracks, gtf_genes)))
 write.table(profile_summary, file.path(GROUP_DIR, paste0(PROFILE_PREFIX, "_Groups_summary.tsv")), sep = "\t", quote = FALSE, row.names = FALSE)
 make_mcm3_target_profile(gtf_genes)

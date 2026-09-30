@@ -33,6 +33,7 @@ args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 3L || length(args) > 4L) stop("Usage: render_direction.R run_root mode output_root [publication_figures]", call. = FALSE)
 RUN_ROOT <- normalizePath(args[[1]], mustWork = TRUE)
 ANALYSIS_MODE <- args[[2]]
+SHARED_LOCUS <- Sys.getenv("MCM3_GENE_MEMBERSHIP", "independent_genes") == "shared_locus"
 if (!ANALYSIS_MODE %in% c("promoters", "all_genes")) stop("Unknown analysis mode: ", ANALYSIS_MODE, call. = FALSE)
 OUTDIR_BASE <- normalizePath(args[[3]], mustWork = FALSE)
 PUBLICATION_DIR <- if (length(args) == 4L) normalizePath(args[[4]], mustWork = FALSE) else NULL
@@ -58,6 +59,13 @@ stop_if_missing <- function(path) {
 read_gene_list <- function(path, column = "gene") {
   stop_if_missing(path)
   tab <- read.delim(path, check.names = FALSE, stringsAsFactors = FALSE)
+  if (column == "gene_id" && !column %in% names(tab)) {
+    internal <- file.path(dirname(path), "internal_ids", basename(path))
+    stop_if_missing(internal)
+    stored <- read.delim(internal, check.names = FALSE, stringsAsFactors = FALSE)
+    if (!identical(tab$gene, stored$gene)) stop("Internal/public gene table mismatch: ", path, call. = FALSE)
+    tab <- stored
+  }
   if (!column %in% names(tab)) stop("Missing ", column, " column in: ", path, call. = FALSE)
   values <- trimws(as.character(tab[[column]]))
   if (column == "gene_id") values <- sub("\\..*$", "", values)
@@ -65,7 +73,20 @@ read_gene_list <- function(path, column = "gene") {
 }
 
 write_gene_list <- function(path, genes) {
-  write.table(data.frame(gene = sort(unique(genes))), path, sep = "\t", quote = FALSE, row.names = FALSE)
+  write.table(export_gene_table(data.frame(gene = sort(unique(genes)))), path, sep = "\t", quote = FALSE, row.names = FALSE)
+}
+
+export_gene_table <- function(tab) {
+  if (!"gene_id" %in% names(tab)) {
+    if (!"gene" %in% names(tab) || !any(grepl("^ENSMUSG[0-9]+", tab$gene))) return(tab)
+    tab$gene_id <- tab$gene
+  }
+  ids <- sub("\\..*$", "", tab$gene_id)
+  symbols <- GENCODE_M25_MAP$gene_symbol[match(ids, GENCODE_M25_MAP$gene_id)]
+  missing <- is.na(symbols) | !nzchar(symbols)
+  symbols[missing] <- ids[missing]
+  tab$gene <- symbols
+  tab[, c("gene", "gene_id", setdiff(names(tab), c("gene", "gene_id"))), drop = FALSE]
 }
 
 load_gencode_m25_map <- function(path) {
@@ -191,7 +212,7 @@ draw_direction_panel <- function(panel_letter, factor, n_center, n_up, n_down,
     "--fs-num-center", 22, "--fs-num-overlap", 17,
     "--fs-bottom-lab", 20, "--fs-bottom-n", 18
   )
-  if (ANALYSIS_MODE == "all_genes") args <- c(args, "--center-label", "Shared-peak-associated genes")
+  if (ANALYSIS_MODE == "all_genes") args <- c(args, "--center-label", if (SHARED_LOCUS) "Shared-peak-associated genes" else "Common peak-associated genes")
   if (no_text) args <- c(args, "--no-text")
   status <- system2(find_python(), args = shQuote(as.character(args)))
   if (status != 0L) stop("Chain-Venn helper failed with status ", status, call. = FALSE)
@@ -219,7 +240,7 @@ draw_venn <- function(sets, out_png, hide_numbers = FALSE) {
   )
   args <- c(
     VENN_HELPER, "--out", out_png,
-    "--title", if (ANALYSIS_MODE == "promoters") "Regulatory targets overlap (promoter-bound AND DEG)" else "Shared-peak-associated DEGs",
+    "--title", if (ANALYSIS_MODE == "promoters") "Regulatory targets overlap (promoter-bound AND DEG)" else if (SHARED_LOCUS) "Shared-peak-associated DEGs" else "Common peak-associated DEGs",
     "--a-name", "MCM3", "--b-name", "NONO", "--c-name", "PSPC1",
     "--a-total", length(a), "--b-total", length(b), "--c-total", length(c),
     "--n100", regions[["n100"]], "--n010", regions[["n010"]], "--n001", regions[["n001"]],
@@ -249,7 +270,7 @@ for (i in seq_along(FACTORS)) {
   bound_path <- if (ANALYSIS_MODE == "promoters") {
     file.path(PROMOTER_DIR, paste0("Venn_PromoterGenes_", factor, ".tsv"))
   } else {
-    file.path(OUTDIR, "SharedPeakAssociatedGenes.tsv")
+    file.path(OUTDIR, if (SHARED_LOCUS) "SharedPeakAssociatedGenes.tsv" else "CommonPeakAssociatedGenes.tsv")
   }
   bound <- read_gene_list(bound_path, if (ANALYSIS_MODE == "promoters") "gene" else "gene_id")
   if (ANALYSIS_MODE == "promoters") {
@@ -271,12 +292,12 @@ for (i in seq_along(FACTORS)) {
   write_gene_list(file.path(OUTDIR, paste0("promoter_vs_DEG_direction_", factor, "_CUTRUN_genes.tsv")), bound)
   write_gene_list(file.path(OUTDIR, paste0("Venn_target_", factor, "_genes.tsv")), direct)
   universe <- sort(unique(c(bound, up, down)))
-  write.table(data.frame(
+  write.table(export_gene_table(data.frame(
     gene = universe,
     CUTRUN_associated = universe %in% bound,
     upregulated = universe %in% up,
     downregulated = universe %in% down
-  ), file.path(OUTDIR, paste0("promoter_vs_DEG_direction_", factor, "_data.tsv")),
+  )), file.path(OUTDIR, paste0("promoter_vs_DEG_direction_", factor, "_data.tsv")),
   sep = "\t", quote = FALSE, row.names = FALSE)
   for (class_name in names(classes)) {
     write_gene_list(file.path(OUTDIR, paste0("promoter_vs_DEG_direction_", factor, "_", class_name, ".tsv")), classes[[class_name]])
@@ -328,7 +349,7 @@ write.table(do.call(rbind, summary_rows), file.path(OUTDIR, "promoter_vs_DEG_dir
             sep = "\t", quote = FALSE, row.names = FALSE)
 write.table(do.call(rbind, count_rows), file.path(OUTDIR, "promoter_vs_DEG_direction_counts.tsv"),
             sep = "\t", quote = FALSE, row.names = FALSE)
-write.table(do.call(rbind, mapping_audits), file.path(OUTDIR, "GeneSymbolMappingAudit.tsv"),
+write.table(export_gene_table(do.call(rbind, mapping_audits)), file.path(OUTDIR, "GeneSymbolMappingAudit.tsv"),
             sep = "\t", quote = FALSE, row.names = FALSE)
 write_gene_list(file.path(OUTDIR, "Venn_target_shared_genes.tsv"), shared)
 write.table(data.frame(region = names(regions), n = as.integer(regions)),
@@ -344,13 +365,13 @@ region_genes <- list(
   NONO_PSPC1_only = setdiff(intersect(direct_sets$NONO, direct_sets$PSPC1), direct_sets$MCM3),
   MCM3_NONO_PSPC1 = shared
 )
-write.table(do.call(rbind, lapply(names(region_genes), function(region) {
+write.table(export_gene_table(do.call(rbind, lapply(names(region_genes), function(region) {
   genes <- sort(region_genes[[region]])
   if (!length(genes)) {
     return(data.frame(region = character(), gene = character(), stringsAsFactors = FALSE))
   }
   data.frame(region = rep(region, length(genes)), gene = genes, stringsAsFactors = FALSE)
-})), file.path(OUTDIR, "Venn_target_genes.tsv"), sep = "\t", quote = FALSE, row.names = FALSE)
+}))), file.path(OUTDIR, "Venn_target_genes.tsv"), sep = "\t", quote = FALSE, row.names = FALSE)
 
 panel$stack_three_pngs(panel_pngs,
   out_png = file.path(VISUAL_DIR, "promoter_vs_DEG_direction_all.png")
@@ -361,11 +382,11 @@ if (!is.null(PUBLICATION_DIR)) panel$stack_three_pngs(panel_pngs_no_text,
 
 writeLines(c(
   paste0("analysis_mode\t", ANALYSIS_MODE),
-  paste0("target_rule\t", if (ANALYSIS_MODE == "promoters") "promoter-bound AND DEG" else "protein-coding gene assigned to a three-factor shared peak locus AND DEG"),
-  paste0("CUTRUN_gene_source\t", if (ANALYSIS_MODE == "promoters") "cutrun_work/05_promoters/Venn_PromoterGenes_<FACTOR>.tsv" else "SharedPeakAssociatedGenes.tsv; derived from canonical shared peak loci and Step 06 gene assignments"),
+  paste0("target_rule\t", if (ANALYSIS_MODE == "promoters") "promoter-bound AND DEG" else if (SHARED_LOCUS) "gene assigned to three-factor shared peak locus AND DEG" else "protein-coding gene present independently in all three factor-associated lists AND DEG; no shared-locus requirement"),
+  paste0("CUTRUN_gene_source\t", if (ANALYSIS_MODE == "promoters") "cutrun_work/05_promoters/Venn_PromoterGenes_<FACTOR>.tsv" else if (SHARED_LOCUS) "SharedPeakAssociatedGenes.tsv; Step 06 shared-locus assignments" else "CommonPeakAssociatedGenes.tsv; intersection of independent Step 06 factor gene assignments"),
   paste0("CUTRUN_definition\t", if (ANALYSIS_MODE == "promoters") "Unmodified Step 05 promoter-bound sets" else "region_mask=7 in cutrun_work/data/PeakLoci/Venn_Peaks_loci.tsv; no additional peak calling or threshold changes"),
-  paste0("analysis_role\t", if (ANALYSIS_MODE == "promoters") "Two-biological-replicate 2020 matched-IgG promoter evidence" else "Shared-peak-associated regulatory candidates; nearest-TSS association does not establish direct regulation"),
-  paste0("group_meaning\t", if (ANALYSIS_MODE == "promoters") "Overlap of factor-specific promoter-bound DEG sets" else "Knockdown DEG overlap within one shared-peak gene universe; only denotes DEG status, not exclusive binding"),
+  paste0("analysis_role\t", if (ANALYSIS_MODE == "promoters") "Two-biological-replicate 2020 matched-IgG promoter evidence" else "Peak-associated regulatory candidates; simultaneous complex occupancy and direct regulation not established"),
+  paste0("group_meaning\t", if (ANALYSIS_MODE == "promoters") "Overlap of factor-specific promoter-bound DEG sets" else "Knockdown DEG overlap within one common peak-associated gene universe; only denotes DEG status, not exclusive binding"),
   "RNAseq_source\tfinal-local DEG tables",
   "RNAseq_threshold\tBH FDR <= 0.05 and absolute log2FC >= 0.28",
   paste0("counting_identifier\t", if (ANALYSIS_MODE == "promoters") "gene symbol; missing symbols mapped through GENCODE M25 then org.Mm.eg.db" else "Ensembl gene ID without version; symbols are labels only")

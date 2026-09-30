@@ -20,6 +20,7 @@ DATA = CUTRUN / "data" / "figure_inputs"
 VISUALS = CUTRUN / "visuals"
 NO_TEXT_VISUALS: Path | None = None
 TEXT_FREE = False
+GENE_MEMBERSHIP = "independent_genes"
 PROMOTER = DATA / "promoter_gene_venn"
 TAG = "q5e2_fe3_min2of2"
 FACTORS = ("MCM3", "NONO", "PSPC1")
@@ -108,11 +109,14 @@ def peak_associated_inputs() -> tuple[dict[str, set[str]], Path, Path]:
         factor: set(pd.read_csv(root / f"PeakAssociatedGenes_{factor}.tsv", sep="\t", dtype=str)["gene_id"].dropna())
         for factor in FACTORS
     }
-    input_dir = DATA / "peak_associated_gene_profiles"
+    input_dir = DATA / "peak_associated_gene_profiles" / GENE_MEMBERSHIP
     input_dir.mkdir(parents=True, exist_ok=True)
-    region_table = input_dir / "LocusDefinedGeneGroups_regions.tsv"
-    groups = pd.read_csv(root / "LocusDefinedGeneGroups.tsv", sep="\t", dtype=str)
-    groups[["region", "gene_id"]].rename(columns={"gene_id": "gene"}).to_csv(region_table, sep="\t", index=False)
+    region_table = input_dir / "Venn_PeakAssociatedGenes_regions.tsv"
+    if GENE_MEMBERSHIP == "shared_locus":
+        groups = pd.read_csv(root / "LocusDefinedGeneGroups.tsv", sep="\t")
+        groups[["region", "gene_id"]].rename(columns={"gene_id": "gene"}).to_csv(region_table, sep="\t", index=False)
+    else:
+        write_region_table(sets, region_table)
     gene_bed = input_dir / "GeneBodies_M25_byID.bed6"
     rows = []
     with (RUN / "reference" / "gencode.vM25.annotation.gtf").open() as handle:
@@ -178,6 +182,10 @@ def render_gene_profiles(
                            ("110", "MCM3-NONO-only loci"), ("101", "MCM3-PSPC1-only loci")):
             module.REGIONS[key]["label"] = label + ": associated genes"
             module.REGIONS[key]["display_title"] = label + "\nAssociated genes"
+    elif data_namespace.startswith("peak_associated_gene_profiles"):
+        for key, label in (("111", "MCM3-PSPC1-NONO"), ("110", "MCM3-NONO-only"), ("101", "MCM3-PSPC1-only")):
+            module.REGIONS[key]["label"] = label + " peak-associated genes"
+            module.REGIONS[key]["display_title"] = label + "\nPeak-associated genes"
     module.main(reuse_matrices=TEXT_FREE)
     source = visual_dir / "Profile_PromoterGenes_summary.tsv"
     if source.is_file():
@@ -214,6 +222,11 @@ def render_rpkm_profiles(
     if locus_defined:
         labels = ("Genes at MCM3-PSPC1-NONO loci", "Genes at MCM3-NONO-only loci",
                   "Genes at MCM3-PSPC1-only loci", "Genes at MCM3-only loci")
+        module.REGION_SPECS = tuple((key, region, label, n) for (key, region, _, n), label
+                                    in zip(module.REGION_SPECS, labels))
+    elif data_namespace.startswith("peak_associated_gene_profiles"):
+        labels = ("MCM3-PSPC1-NONO-associated genes", "MCM3-NONO-only-associated genes",
+                  "MCM3-PSPC1-only-associated genes", "MCM3-only-associated genes")
         module.REGION_SPECS = tuple((key, region, label, n) for (key, region, _, n), label
                                     in zip(module.REGION_SPECS, labels))
     module.FACTOR_SPECS = (
@@ -308,13 +321,13 @@ def render_peak_associated_branch(visual_dir: Path) -> None:
     sets, region_table, gene_bed = peak_associated_inputs()
     render_gene_profiles(
         sets, visual_dir, region_table, gene_bed,
-        "peak_associated_gene_profiles", "peak-associated genes",
-        locus_defined=True,
+        f"peak_associated_gene_profiles/{GENE_MEMBERSHIP}", "peak-associated genes",
+        locus_defined=GENE_MEMBERSHIP == "shared_locus",
     )
     render_rpkm_profiles(
         sets, visual_dir, region_table, gene_bed,
-        "peak_associated_gene_profiles",
-        locus_defined=True,
+        f"peak_associated_gene_profiles/{GENE_MEMBERSHIP}",
+        locus_defined=GENE_MEMBERSHIP == "shared_locus",
     )
 
 

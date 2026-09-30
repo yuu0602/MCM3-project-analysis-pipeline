@@ -19,6 +19,7 @@ PROJECT = Path(__file__).resolve().parent
 RUN = PROJECT.parents[2]
 CUTRUN = RUN / "cutrun_work"
 DATA = CUTRUN / "data" / "figure_inputs"
+GENE_MEMBERSHIP = "independent_genes"
 VISUALS = CUTRUN / "visuals"
 NO_TEXT_VISUALS: Path | None = None
 TEXT_FREE = False
@@ -32,6 +33,7 @@ TRACKS = {
     for factor in FACTORS
 }
 PEAK_LOCI = CUTRUN / "data" / "PeakLoci" / "Venn_Peaks_loci.tsv"
+PEAK_ASSIGNMENTS: Path | None = None
 PROMOTERS = CUTRUN / "data" / "Promoters_M25_TSSplusminus1kb.bed"
 PROMOTER_OVERLAP_BP = 250
 OUT = DATA / "additional_panels"
@@ -219,6 +221,15 @@ def render_peak_associated_gene_profiles() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     groups = peak_locus_groups()
     associations = peak_promoter_associations(groups)
+    if PEAK_ASSIGNMENTS is not None:
+        links = pd.read_csv(PEAK_ASSIGNMENTS, sep="\t")
+        if not links.gene_type.eq("protein_coding").all():
+            raise ValueError("Peak profiles require protein-coding assignments")
+        allowed = links.loc[links.assignment_method.eq("promoter_overlap"), ["peak_id", "gene"]]
+        associations = associations.merge(
+            allowed.rename(columns={"peak_id": "locus_id"}).drop_duplicates(),
+            on=["locus_id", "gene"], how="inner", validate="many_to_one",
+        )
     associations.to_csv(CUTRUN / "data" / "Peak_profiles_promoter_overlaps.tsv", sep="\t", index=False)
     associations.to_csv(OUT / "Peak_profiles_promoter_overlaps.tsv", sep="\t", index=False)
     canonical = canonical_peak_promoter_associations(associations)
@@ -264,7 +275,7 @@ def render_peak_associated_gene_profiles() -> None:
             "unit": "promoter-overlapping peak loci", "n_input_peak_loci": len(groups[mask]),
             "n_profile_loci": retained, "promoter_overlap_rule": f">={PROMOTER_OVERLAP_BP} bp",
             "reference_point": "TSS/TES scaled gene body",
-            "peak_universe": "all retained canonical genomic loci",
+            "peak_universe": "protein-coding-associated canonical loci" if PEAK_ASSIGNMENTS is not None else "all retained canonical genomic loci",
         })
     axis.axvline(0.0, color="#222222", lw=1.1, ls="--"); axis.axvline(2.0, color="#222222", lw=1.1, ls="--")
     axis.set_xlim(-3.0, 3.0); axis.set_ylim(0.0, ymax * 1.05)
@@ -308,7 +319,7 @@ def render_peak_associated_gene_profiles() -> None:
         "unit": "promoter-overlapping peak loci", "n_input_peak_loci": len(groups[7]),
         "n_profile_loci": retained, "promoter_overlap_rule": f">={PROMOTER_OVERLAP_BP} bp",
         "reference_point": "TSS/TES scaled gene body",
-        "peak_universe": "all retained canonical genomic loci",
+        "peak_universe": "protein-coding-associated canonical loci" if PEAK_ASSIGNMENTS is not None else "all retained canonical genomic loci",
     })
     write_peak_profile_summary(summary_rows)
 
@@ -367,7 +378,7 @@ def render_promoter_gene_profile() -> None:
 def render_peak_associated_gene_profile() -> None:
     root = DATA / "protein_coding_peak_associations"
     genes = set(pd.read_csv(root / "LocusDefinedGeneGroups.tsv", sep="\t", dtype=str)["gene_id"].dropna())
-    input_dir = DATA / "peak_associated_gene_profiles"
+    input_dir = DATA / "peak_associated_gene_profiles" / GENE_MEMBERSHIP
     gene_bed = input_dir / "GeneBodies_M25_byID.bed6"
     if not gene_bed.is_file():
         raise FileNotFoundError(gene_bed)
