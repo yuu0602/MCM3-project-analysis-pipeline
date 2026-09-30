@@ -24,7 +24,7 @@ NO_TEXT_VISUALS: Path | None = None
 TEXT_FREE = False
 RENDER_GENES = True
 RENDER_PEAKS = True
-GENE_MEMBERSHIP = "independent_genes"
+GENE_MEMBERSHIP = "non-shared_locus"
 GTF = RUN / "reference" / "gencode.vM25.annotation.gtf"
 FACTORS = ("MCM3", "NONO", "PSPC1")
 ASSAYS = (*FACTORS, "IgG")
@@ -64,9 +64,9 @@ def locus_defined_gene_groups(output: Path) -> pd.DataFrame:
         "assignment": "Existing Step 06 all qualifying promoter links (TSS +/-1000 bp; overlap >=250 bp), otherwise nearest-TSS fallback; protein-coding filter afterward",
         "counting_unit": "Unique Ensembl gene IDs within each locus class",
         "groups_are_disjoint": False,
-        "role": "Membership source for shared_locus figures; not for independent_genes figures",
+        "role": "Membership source for shared_locus figures; not for non-shared_locus figures",
         "interpretation": "A gene may occur in several locus classes; only describes factor membership at a locus, not exclusive binding across the gene",
-        "profiles": "shared_locus profiles use these groups; independent_genes profiles use independent per-factor gene-set intersections",
+        "profiles": "shared_locus profiles use these groups; non-shared_locus profiles use independent per-factor gene-set intersections",
     }, indent=2) + "\n")
     return groups
 

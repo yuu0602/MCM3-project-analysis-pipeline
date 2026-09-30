@@ -33,7 +33,7 @@ args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 3L || length(args) > 4L) stop("Usage: render_direction.R run_root mode output_root [publication_figures]", call. = FALSE)
 RUN_ROOT <- normalizePath(args[[1]], mustWork = TRUE)
 ANALYSIS_MODE <- args[[2]]
-SHARED_LOCUS <- Sys.getenv("MCM3_GENE_MEMBERSHIP", "independent_genes") == "shared_locus"
+SHARED_LOCUS <- Sys.getenv("MCM3_GENE_MEMBERSHIP", "non-shared_locus") == "shared_locus"
 if (!ANALYSIS_MODE %in% c("promoters", "all_genes")) stop("Unknown analysis mode: ", ANALYSIS_MODE, call. = FALSE)
 OUTDIR_BASE <- normalizePath(args[[3]], mustWork = FALSE)
 PUBLICATION_DIR <- if (length(args) == 4L) normalizePath(args[[4]], mustWork = FALSE) else NULL

@@ -24,15 +24,15 @@ subfolder when `--publication-figures` is used.
 
 The all-gene branch contains two separate result folders:
 `all_protein_coding_genes_visuals/shared_locus/` (3,049 triple shared-locus-associated genes)
-and `all_protein_coding_genes_visuals/independent_genes/` (6,156 genes in all three independent
+and `all_protein_coding_genes_visuals/non-shared_locus/` (6,156 genes in all three independent
 factor lists). Both retain the same figure design and peak-assignment rules.
-Use `--gene-membership shared_locus` or `--gene-membership independent_genes`
+Use `--gene-membership shared_locus` or `--gene-membership non-shared_locus`
 to render one; the default `both` renders both.
 
 In `shared_locus`, the three-circle figure is a schematic of locus-defined
 gene categories, not a conventional gene Venn. A gene can belong to several
 classes through different loci; region counts are not additive. Profiles use
-these locus-defined gene groups. `independent_genes` uses disjoint gene-list
+these locus-defined gene groups. `non-shared_locus` uses disjoint gene-list
 intersections as described below. Their membership tables and matrices are
 stored separately under the corresponding membership-named data subfolders.
 
@@ -48,7 +48,7 @@ All-gene assignment starts from the complete canonical peak loci:
 Peak figures count unique genomic loci. Gene figures count distinct Ensembl
 gene IDs after removing version suffixes; symbols are labels only. One peak may
 map to several genes, so a gene intersection can exceed a peak intersection.
-In `independent_genes`, `Venn_PeakAssociatedGenes.png` intersects the independent per-factor gene lists.
+In `non-shared_locus`, `Venn_PeakAssociatedGenes.png` intersects the independent per-factor gene lists.
 Its seven regions are mutually exclusive gene categories. A shared gene can
 have different associated peak locations for different proteins; overlapping
 genomic loci are not required. The current triple intersection is 6,156 genes.
@@ -71,8 +71,8 @@ version. The all-peak branch remains locus-first.
 ## Regeneration
 
 The peak branch also keeps two folders:
-`all_protein_coding_peaks_visuals/shared_locus/` and `all_protein_coding_peaks_visuals/independent_peaks/`.
-Use `--peak-membership shared_locus`, `--peak-membership independent_peaks`,
+`all_protein_coding_peaks_visuals/shared_locus/` and `all_protein_coding_peaks_visuals/non-shared_locus/`.
+Use `--peak-membership shared_locus`, `--peak-membership non-shared_locus`,
 or `--peak-membership both` (default).
 
 Both CUT&RUN folders show the same protein-coding-associated peak sets and genomic-overlap Venn.

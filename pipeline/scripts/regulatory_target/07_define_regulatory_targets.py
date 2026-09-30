@@ -135,7 +135,7 @@ def prepare_peak_targets(output: Path, publication_figures: bool, membership: st
     """Count each eligible factor locus once when an assigned coding gene is a DEG."""
     import pandas as pd
 
-    independent = membership == "independent_peaks"
+    independent = membership == "non-shared_locus"
     data = output / "data"
     data.mkdir(parents=True, exist_ok=True)
     if independent:
@@ -360,8 +360,8 @@ def main() -> None:
     parser.add_argument("--branch", choices=("all", "both", "promoters", "all-genes", "all-peaks"), default="all",
                         help="Default: all three branches; both retains the two gene branches")
     parser.add_argument("--publication-figures", action="store_true", help="Also render text-free PNGs within each branch")
-    parser.add_argument("--gene-membership", choices=("both", "shared_locus", "independent_genes"), default="both")
-    parser.add_argument("--peak-membership", choices=("both", "shared_locus", "independent_peaks"), default="both")
+    parser.add_argument("--gene-membership", choices=("both", "shared_locus", "non-shared_locus"), default="both")
+    parser.add_argument("--peak-membership", choices=("both", "shared_locus", "non-shared_locus"), default="both")
     args = parser.parse_args()
     if args.dry_run:
         print(f"[DRY-RUN] Regulatory target branch: {args.branch}")
@@ -380,10 +380,10 @@ def main() -> None:
     if args.branch in ("all", "all-peaks"):
         selected.append("all_peaks")
     for mode in selected:
-        memberships = ("shared_locus", "independent_genes") if args.gene_membership == "both" else (args.gene_membership,)
+        memberships = ("shared_locus", "non-shared_locus") if args.gene_membership == "both" else (args.gene_membership,)
         outputs = [BRANCHES[mode] / name for name in memberships] if mode == "all_genes" else [BRANCHES[mode]]
         if mode == "all_peaks":
-            memberships = ("shared_locus", "independent_peaks") if args.peak_membership == "both" else (args.peak_membership,)
+            memberships = ("shared_locus", "non-shared_locus") if args.peak_membership == "both" else (args.peak_membership,)
             outputs = [BRANCHES[mode] / name for name in memberships]
         for output in outputs:
             output.mkdir(parents=True, exist_ok=True)

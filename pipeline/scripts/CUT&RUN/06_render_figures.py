@@ -117,8 +117,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--branch", choices=("all", "promoters", "all-genes", "all-peaks"), default="all")
-    parser.add_argument("--gene-membership", choices=("both", "shared_locus", "independent_genes"), default="both")
-    parser.add_argument("--peak-membership", choices=("both", "shared_locus", "independent_peaks"), default="both")
+    parser.add_argument("--gene-membership", choices=("both", "shared_locus", "non-shared_locus"), default="both")
+    parser.add_argument("--peak-membership", choices=("both", "shared_locus", "non-shared_locus"), default="both")
     parser.add_argument("--publication-figures", action="store_true", help="Also render text-free PNGs within each visual branch")
     parser.add_argument("--no-text", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -131,9 +131,9 @@ def main() -> None:
     if args.branch == "all":
         jobs = [(branch, args.gene_membership, args.peak_membership) for branch in ("promoters", "all-genes", "all-peaks")]
     elif args.branch == "all-genes" and args.gene_membership == "both":
-        jobs = [(args.branch, name, args.peak_membership) for name in ("shared_locus", "independent_genes")]
+        jobs = [(args.branch, name, args.peak_membership) for name in ("shared_locus", "non-shared_locus")]
     elif args.branch == "all-peaks" and args.peak_membership == "both":
-        jobs = [(args.branch, args.gene_membership, name) for name in ("shared_locus", "independent_peaks")]
+        jobs = [(args.branch, args.gene_membership, name) for name in ("shared_locus", "non-shared_locus")]
     if jobs:
         for branch, genes, peaks in jobs:
             command = [sys.executable, str(Path(__file__).resolve()), "--branch", branch,

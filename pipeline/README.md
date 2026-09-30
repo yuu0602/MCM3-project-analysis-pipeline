@@ -35,8 +35,8 @@ remain separate in `all_protein_coding_peaks_visuals`.
 ## Regulatory Integration
 
 The peak branch has `all_protein_coding_peaks_visuals/shared_locus/` and
-`all_protein_coding_peaks_visuals/independent_peaks/` in both CUT&RUN and regulatory outputs.
-Steps 06/07 accept `--peak-membership shared_locus`, `independent_peaks`, or
+`all_protein_coding_peaks_visuals/non-shared_locus/` in both CUT&RUN and regulatory outputs.
+Steps 06/07 accept `--peak-membership shared_locus`, `non-shared_locus`, or
 `both` (default). CUT&RUN peak figures remain identical: peaks and their
 genomic-overlap definition are unchanged. Regulatory membership differs:
 the shared-locus branch starts with triple-shared peaks, while the independent
@@ -49,7 +49,7 @@ NONO 15,880, PSPC1 29,013, and IgG 273; the three-factor intersection is 3,036.
 Existing noncoding assignments are excluded, not redirected to coding genes.
 
 Both CUT&RUN and regulatory `all_protein_coding_genes_visuals` contain `shared_locus/` and
-`independent_genes/`. The former retains genes assigned after genomic peak
+`non-shared_locus/`. The former retains genes assigned after genomic peak
 intersection (3,049 triple-associated genes); the latter intersects independent
 factor gene lists (6,156). `--gene-membership both` is the default for Steps
 06 and 07. Select either membership name to render only that version. The

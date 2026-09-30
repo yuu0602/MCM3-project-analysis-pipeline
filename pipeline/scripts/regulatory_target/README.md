@@ -27,17 +27,17 @@ Two definitions are preserved in separate folders under `all_protein_coding_gene
 
 - `shared_locus/`: 3,049 genes assigned to three-factor shared genomic loci.
   Regulatory Groups A-D currently contain 36, 47, 15, and 55 genes.
-- `independent_genes/`: 6,156 genes present independently in all three factor
+- `non-shared_locus/`: 6,156 genes present independently in all three factor
   gene lists. Regulatory Groups A-D currently contain 64, 87, 25, and 123 genes.
 
 Each has its own figures, source data, publication figures, and RNA-seq trend
-workbook. Run with `--gene-membership shared_locus` or `independent_genes` to
+workbook. Run with `--gene-membership shared_locus` or `non-shared_locus` to
 select one. The default `both` renders both without overwriting one another.
 For `shared_locus`, `SharedPeakAssociatedGenes.tsv`, `SharedPeakLoci.tsv`,
 `SharedPeakGeneAssignments.tsv`, and `SharedPeakParameters.json` record the
-strict universe and provenance. For `independent_genes`, the definition follows.
+strict universe and provenance. For `non-shared_locus`, the definition follows.
 
-`all_protein_coding_genes_visuals/independent_genes/` starts with the intersection of the three independent
+`all_protein_coding_genes_visuals/non-shared_locus/` starts with the intersection of the three independent
 protein-coding peak-associated gene lists from Step 06. The current intersection
 contains 6,156 genes and matches CUT&RUN's `Venn_PeakAssociatedGenes.png`.
 Associated peaks can occur at different genomic loci for each factor.
@@ -68,9 +68,9 @@ gene bodies, not the shared peak centers.
 
 ## All-Peak Branch
 
-The peak branch has `shared_locus/` and `independent_peaks/` subfolders, each
+The peak branch has `shared_locus/` and `non-shared_locus/` subfolders, each
 with its own figures, source tables, matrices, and text-free counterparts.
-Use `--peak-membership shared_locus`, `--peak-membership independent_peaks`,
+Use `--peak-membership shared_locus`, `--peak-membership non-shared_locus`,
 or `--peak-membership both` (default).
 
 ### Shared Locus
@@ -132,7 +132,7 @@ peaks as their denominator because they assess the fraction with a DEG link.
 
 ### Independent Peaks
 
-`all_protein_coding_peaks_visuals/independent_peaks/` starts from each factor's own retained
+`all_protein_coding_peaks_visuals/non-shared_locus/` starts from each factor's own retained
 canonical loci with at least one protein-coding gene assignment, without requiring triple CUT&RUN sharing. A regulatory peak
 must be retained for that factor AND have an assigned gene that is a DEG in
 that factor's KD. The existing peak thresholds, genomic-overlap definition,
@@ -152,10 +152,10 @@ excluded from that factor's counts and profiles. `data/PeakLoci.tsv` and
 `PeakGeneAssignments.tsv` replace the shared-locus-only input files.
 
 Current regulatory Groups A-D are 53/59/17/68 for `shared_locus` and
-53/241/47/76 for `independent_peaks`. CUT&RUN peak figures themselves remain
+53/241/47/76 for `non-shared_locus`. CUT&RUN peak figures themselves remain
 identical because changing a downstream eligibility rule does not change peaks.
 Peak backgrounds are 3,036 loci for `shared_locus` and MCM3 19,588,
-NONO 15,880, PSPC1 29,013 for `independent_peaks`. The biotype filter changes
+NONO 15,880, PSPC1 29,013 for `non-shared_locus`. The biotype filter changes
 background totals and percentages, not DEG-linked peak membership or gene-branch outputs.
 
 ```bash

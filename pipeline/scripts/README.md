@@ -13,13 +13,13 @@
 | 07 | `regulatory_target/07_define_regulatory_targets.py` | Promoter-bound, two associated-gene definitions, and shared-locus peak regulatory branches |
 
 Steps 06 and 07 preserve both `all_protein_coding_genes_visuals/shared_locus/` and
-`all_protein_coding_genes_visuals/independent_genes/`. Use `--gene-membership shared_locus`
-or `--gene-membership independent_genes` to render only one. The default `both`
+`all_protein_coding_genes_visuals/non-shared_locus/`. Use `--gene-membership shared_locus`
+or `--gene-membership non-shared_locus` to render only one. The default `both`
 renders both separately. They share the same peak and RNA-seq thresholds;
 only gene-set membership differs.
 
 Steps 06 and 07 also preserve `all_protein_coding_peaks_visuals/shared_locus/` and
-`all_protein_coding_peaks_visuals/independent_peaks/`. Select either with `--peak-membership`,
+`all_protein_coding_peaks_visuals/non-shared_locus/`. Select either with `--peak-membership`,
 or use `both` (default). The CUT&RUN peak figures use identical protein-coding-associated genomic peak
 sets; regulatory integration either requires triple-shared loci up front or
 uses each factor's own retained peaks with its corresponding KD DEGs.
