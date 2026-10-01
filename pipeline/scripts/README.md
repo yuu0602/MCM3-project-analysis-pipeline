@@ -1,7 +1,5 @@
 # Pipeline Scripts
 
-`run_pipeline.py` executes the numbered stages in dependency order.
-
 | Stage | Script | Result |
 | --- | --- | --- |
 | 01 | `bulkRNAseq/01_prepare_inputs.py` | References, manifests, and accepted/raw input staging |
