@@ -4,15 +4,16 @@
 | --- | --- | --- |
 | 04 | `04_align_and_normalize.py` | Align mouse and yeast reads, filter BAMs, and generate normalized bigWigs. |
 | 05 | `05_call_peaks_and_define_binding.py` | Call/filter peaks and define promoter-bound genes. |
-| 06 | `06_render_figures.py` | Render promoter-gene, all-gene, and all-peak figure branches. |
+| 06 | `06_render_figures.py` | Render the main protein-coding gene and peak figure branches; promoter figures are optional. |
 
 ## Figure Branches
 
-Step 06 writes labeled figures directly to three folders under
+Step 06 writes labeled figures directly to folders under
 `cutrun_work/visuals/`. Each folder contains a `publication_figures/`
-subfolder when `--publication-figures` is used.
+subfolder when `--publication-figures` is used. The default renders the two
+protein-coding branches; the promoter branch is requested explicitly.
 
-- `promoters_visuals/`: promoter-bound gene Venn, gene-body profiles,
+- `promoters_visuals/` (optional): promoter-bound gene Venn, gene-body profiles,
   metaprofile, and RPKM panels. These use the Step 05 promoter-bound sets.
 - `all_protein_coding_genes_visuals/`: protein-coding genes associated with retained peaks,
   including a conventional gene Venn, feature pies, gene-body profiles,
@@ -97,5 +98,7 @@ python 'pipeline/scripts/CUT&RUN/06_render_figures.py' --publication-figures
 ```
 
 Use `--branch promoters`, `--branch all-genes`, or `--branch all-peaks` to
-render one branch. The default `--branch all` renders all three. Text-free
-figures reuse existing deepTools matrices during the second pass.
+render one branch. The default `--branch all` renders the two main
+protein-coding branches. Use `--branch all-with-promoters` to include the
+optional promoter branch. Text-free figures reuse existing deepTools matrices
+during the second pass.

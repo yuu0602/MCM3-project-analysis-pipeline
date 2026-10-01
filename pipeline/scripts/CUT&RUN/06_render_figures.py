@@ -116,7 +116,12 @@ def configure_additional():
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--branch", choices=("all", "promoters", "all-genes", "all-peaks"), default="all")
+    parser.add_argument(
+        "--branch",
+        choices=("all", "all-with-promoters", "promoters", "all-genes", "all-peaks"),
+        default="all",
+        help="Default: main protein-coding gene and peak branches; all-with-promoters also renders optional promoter figures.",
+    )
     parser.add_argument("--gene-membership", choices=("both", "shared_locus", "non-shared_locus"), default="both")
     parser.add_argument("--peak-membership", choices=("both", "shared_locus", "non-shared_locus"), default="both")
     parser.add_argument("--publication-figures", action="store_true", help="Also render text-free PNGs within each visual branch")
@@ -129,6 +134,8 @@ def main() -> None:
         return
     jobs = []
     if args.branch == "all":
+        jobs = [(branch, args.gene_membership, args.peak_membership) for branch in ("all-genes", "all-peaks")]
+    elif args.branch == "all-with-promoters":
         jobs = [(branch, args.gene_membership, args.peak_membership) for branch in ("promoters", "all-genes", "all-peaks")]
     elif args.branch == "all-genes" and args.gene_membership == "both":
         jobs = [(args.branch, name, args.peak_membership) for name in ("shared_locus", "non-shared_locus")]
@@ -146,9 +153,9 @@ def main() -> None:
         return
     prepare_inputs()
     selected = {
-        "promoters": args.branch in ("all", "promoters"),
-        "all-genes": args.branch in ("all", "all-genes"),
-        "all-peaks": args.branch in ("all", "all-peaks"),
+        "promoters": args.branch in ("all-with-promoters", "promoters"),
+        "all-genes": args.branch in ("all", "all-with-promoters", "all-genes"),
+        "all-peaks": args.branch in ("all", "all-with-promoters", "all-peaks"),
     }
     branch_dirs = {"promoters": PROMOTER_VISUALS, "all-genes": GENE_VISUALS / args.gene_membership,
                    "all-peaks": PEAK_VISUALS / args.peak_membership}

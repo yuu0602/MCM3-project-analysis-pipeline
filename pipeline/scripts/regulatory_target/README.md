@@ -12,12 +12,12 @@ names are available in the accompanying gene tables.
 | 07 | `07_define_regulatory_targets.py` | Integrate current directional DEGs with promoter-bound genes, common peak-associated genes, and shared genomic peaks. |
 
 Step 07 uses the existing bulk RNA-seq DEG tables and does not rerun
-differential expression. It generates three separate branches under
-`regulatory_work/visuals/`.
+differential expression. By default, it generates the two main protein-coding
+branches under `regulatory_work/visuals/`; the promoter branch is optional.
 
 ## Promoter Branch
 
-`promoters_visuals/` intersects each factor's promoter-bound genes with DEGs
+`promoters_visuals/` is optional and intersects each factor's promoter-bound genes with DEGs
 from knockdown of the same factor. This is the stricter direct-target analysis.
 The promoter-bound rule is defined in CUT&RUN Step 05.
 
@@ -163,8 +163,9 @@ python pipeline/scripts/regulatory_target/07_define_regulatory_targets.py --publ
 ```
 
 Use `--branch promoters`, `--branch all-genes`, or `--branch all-peaks` to render
-one branch. The default `--branch all` renders all three; `--branch both` remains
-available for the two gene branches only.
+one branch. The default `--branch all` renders the two main protein-coding
+branches. Use `--branch all-with-promoters` to also render the optional promoter
+branch; `--branch both` remains available for the two gene branches only.
 
 ```bash
 python pipeline/scripts/regulatory_target/07_define_regulatory_targets.py --branch all-peaks --publication-figures

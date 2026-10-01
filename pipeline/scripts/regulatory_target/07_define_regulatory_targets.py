@@ -357,8 +357,12 @@ def export_gene_names_only(output: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--branch", choices=("all", "both", "promoters", "all-genes", "all-peaks"), default="all",
-                        help="Default: all three branches; both retains the two gene branches")
+    parser.add_argument(
+        "--branch",
+        choices=("all", "all-with-promoters", "both", "promoters", "all-genes", "all-peaks"),
+        default="all",
+        help="Default: main protein-coding gene and peak branches; all-with-promoters adds optional promoter figures; both renders the two gene definitions only.",
+    )
     parser.add_argument("--publication-figures", action="store_true", help="Also render text-free PNGs within each branch")
     parser.add_argument("--gene-membership", choices=("both", "shared_locus", "non-shared_locus"), default="both")
     parser.add_argument("--peak-membership", choices=("both", "shared_locus", "non-shared_locus"), default="both")
@@ -367,17 +371,17 @@ def main() -> None:
         print(f"[DRY-RUN] Regulatory target branch: {args.branch}")
         return
     promoter_input = CUTRUN_ROOT / "data" / "figure_inputs" / "promoter_gene_venn"
-    if args.branch in ("all", "both", "promoters") and not promoter_input.is_dir():
+    if args.branch in ("all-with-promoters", "promoters") and not promoter_input.is_dir():
         raise FileNotFoundError("Run CUT&RUN Step 05 before regulatory integration")
     associated_input = CUTRUN_ROOT / "data/figure_inputs/protein_coding_peak_associations/PeakGeneAssignments.tsv"
-    if args.branch in ("all", "both", "all-genes", "all-peaks") and not associated_input.is_file():
+    if args.branch in ("all", "all-with-promoters", "both", "all-genes", "all-peaks") and not associated_input.is_file():
         raise FileNotFoundError("Run CUT&RUN Step 06 before all-gene regulatory integration")
     selected = []
-    if args.branch in ("all", "both", "promoters"):
+    if args.branch in ("all-with-promoters", "promoters"):
         selected.append("promoters")
-    if args.branch in ("all", "both", "all-genes"):
+    if args.branch in ("all", "all-with-promoters", "both", "all-genes"):
         selected.append("all_genes")
-    if args.branch in ("all", "all-peaks"):
+    if args.branch in ("all", "all-with-promoters", "all-peaks"):
         selected.append("all_peaks")
     for mode in selected:
         memberships = ("shared_locus", "non-shared_locus") if args.gene_membership == "both" else (args.gene_membership,)

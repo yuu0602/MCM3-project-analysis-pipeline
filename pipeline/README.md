@@ -16,9 +16,10 @@
 
 ## CUT&RUN Figure Universes
 
-Step 06 keeps three analyses separate:
+Step 06 keeps three analyses separate. The two protein-coding branches are the
+default publication outputs; the promoter branch is optional:
 
-- `promoters_visuals`: genes satisfying the promoter-binding rule;
+- `promoters_visuals` (optional): genes satisfying the promoter-binding rule;
 - `all_protein_coding_genes_visuals`: protein-coding genes assigned to all retained peaks;
 - `all_protein_coding_peaks_visuals`: retained genomic peak loci with at least one protein-coding gene assignment.
 
@@ -77,8 +78,10 @@ established direct regulation.
 In the peak branch, different assigned genes may support the same peak in
 different KD comparisons. Peak counts are not gene counts or differential
 binding calls. Up/Down/Mix summarizes the directions of linked RNA-seq DEGs.
-Run Step 07 with `--branch all-peaks` for only this branch; the default `all`
-runs all three, while `both` retains the two gene branches.
+Run Step 07 with `--branch all-peaks` for only this branch. The default
+`--branch all` runs the two protein-coding branches; `--branch all-with-promoters`
+also renders the optional promoter branch, while `--branch both` retains the two
+gene branches only.
 
 `--publication-figures` adds text-free counterparts within each branch's
 `publication_figures/` folder.
