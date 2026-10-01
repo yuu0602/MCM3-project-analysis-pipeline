@@ -364,8 +364,18 @@ def main() -> None:
         help="Default: main protein-coding gene and peak branches; all-with-promoters adds optional promoter figures; both renders the two gene definitions only.",
     )
     parser.add_argument("--publication-figures", action="store_true", help="Also render text-free PNGs within each branch")
-    parser.add_argument("--gene-membership", choices=("both", "shared_locus", "non-shared_locus"), default="both")
-    parser.add_argument("--peak-membership", choices=("both", "shared_locus", "non-shared_locus"), default="both")
+    parser.add_argument(
+        "--gene-membership",
+        choices=("both", "shared_locus", "non-shared_locus"),
+        default="shared_locus",
+        help="Default: genes assigned after three-factor shared-locus intersection; non-shared_locus is optional.",
+    )
+    parser.add_argument(
+        "--peak-membership",
+        choices=("both", "shared_locus", "non-shared_locus"),
+        default="shared_locus",
+        help="Default: three-factor shared peak loci; non-shared_locus is optional.",
+    )
     args = parser.parse_args()
     if args.dry_run:
         print(f"[DRY-RUN] Regulatory target branch: {args.branch}")
