@@ -219,7 +219,8 @@ def write_peak_sources(output: Path, membership: str) -> None:
     source = FIGURE_DATA / "protein_coding_peak_associations"
     inputs = [source / "Venn_Peaks_loci.tsv", source / "AssignmentSummary.tsv"]
     inputs += [source / name for name in ("Venn_Peaks_counts.tsv", "Venn_Peaks_members.tsv",
-               "Pie_PeakDistribution_counts.tsv", "Pie_SharedPeaks_Distribution_counts.tsv")]
+               "Pie_CoBindingPeaks_counts.tsv", "Pie_PeakDistribution_counts.tsv",
+               "Pie_SharedPeaks_Distribution_counts.tsv")]
     for path in inputs:
         shutil.copy2(path, data / path.name)
     (data / "AnalysisParameters.json").write_text(json.dumps({

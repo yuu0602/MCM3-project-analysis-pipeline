@@ -12,6 +12,7 @@ import subprocess
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import pandas as pd
 
 PROJECT = Path(__file__).resolve().parent
@@ -247,6 +248,72 @@ def shared_peak_distribution(renderer, categories, peaks, output: Path) -> None:
         output / "Pie_SharedPeaks_Distribution_counts.tsv", sep="\t", index=False)
 
 
+def cobinding_peak_distribution(venn, peaks, output: Path) -> None:
+    """Summarize the seven disjoint Venn peak classes as a publication pie."""
+    a, b, c = (set(peaks[factor].peak_id) for factor in FACTORS)
+    regions = {
+        "100": a - b - c,
+        "010": b - a - c,
+        "001": c - a - b,
+        "110": (a & b) - c,
+        "101": (a & c) - b,
+        "011": (b & c) - a,
+        "111": a & b & c,
+    }
+    labels = {
+        "100": "MCM3 only",
+        "010": "NONO only",
+        "001": "PSPC1 only",
+        "110": "MCM3 + NONO",
+        "101": "MCM3 + PSPC1",
+        "011": "NONO + PSPC1",
+        "111": "MCM3 + NONO + PSPC1",
+    }
+    order = ("100", "010", "001", "110", "101", "011", "111")
+    total = sum(len(regions[region]) for region in order)
+    expected = len(a | b | c)
+    if total != expected:
+        raise ValueError("Co-binding peak classes do not partition the Venn peak universe")
+    table = pd.DataFrame(
+        {
+            "region": order,
+            "class": [labels[region] for region in order],
+            "n_peaks": [len(regions[region]) for region in order],
+            "percent": [100.0 * len(regions[region]) / total for region in order],
+        }
+    )
+    table.to_csv(output / "Pie_CoBindingPeaks_counts.tsv", sep="\t", index=False)
+    figure, axis = plt.subplots(figsize=(10.5, 4.6), dpi=300, facecolor="white")
+    wedges, _ = axis.pie(
+        table.n_peaks,
+        colors=[venn.REGION_COLORS[region] for region in order],
+        startangle=90,
+        counterclock=False,
+        wedgeprops={"edgecolor": "black", "linewidth": 1.6},
+    )
+    axis.set_aspect("equal")
+    if not TEXT_FREE:
+        axis.set_title(
+            f"MCM3-NONO-PSPC1 CUT&RUN peak co-binding\n(n={total:,})",
+            fontsize=14,
+            fontweight="bold",
+            pad=12,
+        )
+        legend = axis.legend(
+            wedges,
+            [f"{row['class']} ({int(row.n_peaks):,}; {row.percent:.2f}%)" for _, row in table.iterrows()],
+            loc="center left",
+            bbox_to_anchor=(1.02, 0.5),
+            frameon=False,
+            fontsize=11,
+        )
+        for text in legend.get_texts():
+            text.set_fontweight("bold")
+    figure.tight_layout()
+    figure.savefig(PEAK_VISUALS / "Pie_CoBindingPeaks.png", dpi=300, facecolor="white")
+    plt.close(figure)
+
+
 def main() -> None:
     spec = importlib.util.spec_from_file_location("peak_venn", PROJECT / "peak_venn.py")
     if spec is None or spec.loader is None:
@@ -288,6 +355,7 @@ def main() -> None:
         pd.DataFrame(rows).to_csv(output / f"{combined}_counts.tsv", sep="\t", index=False)
     if RENDER_PEAKS:
         render_venn(venn, peaks, "peak_id", "Venn_Peaks", output, PEAK_VISUALS)
+        cobinding_peak_distribution(venn, peaks, output)
         shared_peak_distribution(renderer, categories, peaks, output)
     if RENDER_GENES and GENE_MEMBERSHIP == "shared_locus":
         gene_output = output / GENE_MEMBERSHIP
