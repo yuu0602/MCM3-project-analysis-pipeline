@@ -2,8 +2,8 @@
 
 <p style="font-family: Arial, Helvetica, sans-serif; font-size: 1.05em; line-height: 1.6; color: #4b5563;"><em>A workflow integrating CUT&amp;RUN chromatin profiling with bulk-RNAseq differential expression to define direct regulatory targets.</em></p>
 
-[![Conda environment](https://img.shields.io/badge/Conda-mcm3--pipeline-44A833?logo=anaconda&logoColor=white)](pipeline/environment.yml)
-[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](pipeline/environment.yml)
+[![Conda environment](https://img.shields.io/badge/Conda-mcm3--pipeline-44A833?logo=anaconda&logoColor=white)](environment/environment.yml)
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](environment/environment.yml)
 [![Workflow](https://img.shields.io/badge/workflow-CUT%26RUN%20%2B%20RNA--seq-17365D)](#visual-abstract)
 
 ## Overview
@@ -13,6 +13,5 @@ This workflow characterizes the chromatin occupancy and transcriptional conseque
 ## Visual abstract
 
 <img width="1002" height="618" alt="edited_image" src="https://github.com/user-attachments/assets/4af96123-ae0c-492e-a68f-8225bb6490fb" />
-
 
 
