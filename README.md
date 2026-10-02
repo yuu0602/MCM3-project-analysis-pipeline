@@ -1,4 +1,4 @@
-<img width="1002" height="618" alt="Screenshot 2026-10-02 at 13 23 57" src="https://github.com/user-attachments/assets/9a80387f-bf92-4f38-bd4b-a155911be23e" /><h1 style="font-family: Arial, Helvetica, sans-serif; font-size: 2.2em; line-height: 1.2; color: #17365d; margin-bottom: 0.15em;">MCM3–NONO–PSPC1 Multi-omics Pipeline</h1>
+<h1 style="font-family: Arial, Helvetica, sans-serif; font-size: 2.2em; line-height: 1.2; color: #17365d; margin-bottom: 0.15em;">MCM3–NONO–PSPC1 Multi-omics Pipeline</h1>
 
 <p style="font-family: Arial, Helvetica, sans-serif; font-size: 1.05em; line-height: 1.6; color: #4b5563;"><em>A workflow integrating CUT&amp;RUN chromatin profiling with bulk-RNAseq differential expression to define direct regulatory targets.</em></p>
 
