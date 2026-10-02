@@ -8,6 +8,6 @@
 
 ## Overview
 
-This workflow characterizes the chromatin occupancy and transcriptional consequences of the MCM3, NONO, and PSPC1 complex.  Our pipeline uses paired-end CUT&RUN data with matched IgG controls and yeast spike-in normalization, then integrates factor-specific co-bound genes with bulk RNA-seq differential-expression results. A direct regulatory target is a gene intersecting co-bound genes and differentially expressed genes.
+This workflow characterizes the chromatin occupancy and transcriptional consequences of the MCM3, NONO, and PSPC1 complex.  Our pipeline utilizes paired-end CUT&RUN data with matched IgG controls and yeast spike-in normalization, then integrates factor-specific co-bound genes with bulk-RNAseq differential expression results. The direct regulatory targets are the genes at the intersection of the co-bound and differentially expressed genes.
 
 ## Visual abstract
