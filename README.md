@@ -11,3 +11,6 @@
 This workflow characterizes the chromatin occupancy and transcriptional consequences of the MCM3, NONO, and PSPC1 complex.  Our pipeline utilizes paired-end CUT&RUN data with matched IgG controls and yeast spike-in normalization, then integrates factor-specific co-bound genes with bulk-RNAseq differential expression results. The direct regulatory targets are the genes at the intersection of the co-bound and differentially expressed genes.
 
 ## Visual abstract
+
+<img width="877" height="530" alt="edited_image" src="https://github.com/user-attachments/assets/5a39cd29-36a7-4853-a5d6-756a7e6a1266" />
+
