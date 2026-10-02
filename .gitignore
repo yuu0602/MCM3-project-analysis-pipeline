@@ -1,12 +1,9 @@
-# Experimental inputs and generated analysis outputs
-bulkRNAseq_data/
-CUT&RUN_data/
-
-pipeline/reference/
-pipeline/deg_work/
-pipeline/cutrun_work/
-pipeline/regulatory_work/
-
+/bulkRNAseq_data/
+/CUT&RUN_data/
+/pipeline/reference/
+/pipeline/deg_work/
+/pipeline/cutrun_work/
+/pipeline/regulatory_work/
 __pycache__/
 *.py[cod]
 .Rhistory
